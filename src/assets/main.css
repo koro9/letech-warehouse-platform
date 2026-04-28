@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === 全局基础样式（来自 demo） === */
+@layer base {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 移除 number input 默认箭头 */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+/* === Demo 通用组件样式（迁移自 demo CSS） === */
+@layer components {
+  .g-btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-7 py-2.5
+           rounded-lg text-sm font-semibold cursor-pointer transition-all
+           border-0 whitespace-nowrap;
+  }
+  .g-btn:hover {
+    @apply -translate-y-px shadow-md;
+  }
+  .g-btn-teal { @apply bg-teal text-white; }
+  .g-btn-pink { @apply bg-pink text-white; }
+  .g-btn-green { @apply bg-green-500 text-white; }
+  .g-btn-blue { @apply bg-blue-500 text-white; }
+
+  .g-input {
+    @apply px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white
+           outline-none transition-colors;
+  }
+  .g-input:focus {
+    @apply border-teal ring-2 ring-teal/15;
+  }
+
+  .g-card {
+    @apply bg-white rounded-xl border border-gray-100 shadow-sm;
+  }
+
+  .g-table {
+    @apply w-full border-collapse text-sm;
+  }
+  .g-table th {
+    @apply text-left px-4 py-3 font-bold text-gray-500 uppercase
+           text-xs bg-gray-50 border-b-2 border-gray-100;
+  }
+  .g-table td {
+    @apply px-4 py-3 border-b border-gray-100 text-gray-700;
+  }
+  .g-table tbody tr:hover {
+    @apply bg-gray-50;
+  }
+}

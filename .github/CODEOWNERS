@@ -1,0 +1,7 @@
+# 默认所有改动需要 koro9 审核
+*       @koro9
+
+# 关键文件加多一层把关
+/.github/workflows/  @koro9
+/src/utils/api.js    @koro9
+/src/router/         @koro9
