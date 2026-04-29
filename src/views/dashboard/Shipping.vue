@@ -2,6 +2,9 @@
 /**
  * 面单 — 复刻 demo s1-shipping
  * 双栏（今日 / 明日）面单文件列表，支持下载
+ *
+ * 注：demo 里有 🔄 按钮，但只是 toast 装饰；实际面单一旦生成就不变（PDF 文件），
+ *    没有"被别人改了"的并发场景，所以不接 usePageRefresh 也不放刷新按钮
  */
 import { ref } from 'vue'
 import { showToast } from '@/composables/useToast'
@@ -16,7 +19,6 @@ const tomorrowFiles = ref([
   { n: '20260420100024.pdf', o: 717, t: '2026-04-20 09:56' },
 ])
 
-function refresh() { showToast('已刷新', 'success') }
 function download() { showToast('下載中', 'success') }
 </script>
 
@@ -27,7 +29,6 @@ function download() { showToast('下載中', 'success') }
       <div>
         <div class="flex items-center gap-3 mb-5">
           <button class="g-btn g-btn-teal" style="padding: 10px 36px;">今日</button>
-          <button class="g-icon-btn" @click="refresh">🔄</button>
         </div>
         <div class="g-card overflow-hidden">
           <table class="g-table">
@@ -57,7 +58,6 @@ function download() { showToast('下載中', 'success') }
       <div>
         <div class="flex items-center gap-3 mb-5">
           <button class="g-btn g-btn-teal" style="padding: 10px 36px;">明日</button>
-          <button class="g-icon-btn" @click="refresh">🔄</button>
         </div>
         <div class="g-card overflow-hidden">
           <table class="g-table">

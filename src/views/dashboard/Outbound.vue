@@ -10,6 +10,8 @@
 import { ref, computed, nextTick } from 'vue'
 import { outbound } from '@/api'
 import { showToast } from '@/composables/useToast'
+import { usePageRefresh } from '@/composables/usePageRefresh'
+import RefreshButton from '@/components/RefreshButton.vue'
 
 const orderInput = ref('')
 const skuInput = ref('')
@@ -40,12 +42,21 @@ async function loadOrder() {
     await nextTick()
     skuInputEl.value?.focus()
   } catch (err) {
-    showToast(err.response?.data?.error || '订单不存在或不可出库', 'error')
+    if (!err.handledByInterceptor) {
+      showToast(err.response?.data?.error || '订单不存在或不可出库', 'error')
+    }
     items.value = []
   } finally {
     loading.value = false
   }
 }
+
+// 注册到全局刷新 slot：手动 🔄、409 冲突、focus 回页都触发
+async function refreshOrder() {
+  if (!orderNumber.value) return  // 没载入订单时刷新无意义
+  await loadOrder()
+}
+const { refreshNow } = usePageRefresh(refreshOrder)
 
 async function scanSku() {
   if (!skuInput.value.trim() || !orderNumber.value) return
@@ -126,7 +137,8 @@ async function forceComplete() {
         <button class="g-toggle" :class="{ on: printAfterScan }" @click="printAfterScan = !printAfterScan" />
         <span class="text-sm text-gray-500">是否打印</span>
       </div>
-      <div class="ml-auto flex gap-2.5">
+      <div class="ml-auto flex items-center gap-2.5">
+        <RefreshButton v-if="orderNumber" :on-refresh="refreshNow" />
         <button class="g-btn g-btn-teal" @click="reset">重制</button>
         <button class="g-btn g-btn-pink" :disabled="!orderNumber" @click="forceComplete">强制出库</button>
       </div>

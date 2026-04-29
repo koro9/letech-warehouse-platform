@@ -17,6 +17,8 @@
  */
 import { computed, nextTick, reactive, ref } from 'vue'
 import { showToast } from '@/composables/useToast'
+import { usePageRefresh } from '@/composables/usePageRefresh'
+import RefreshButton from '@/components/RefreshButton.vue'
 
 const WH = ['3PL', 'WS', 'SD4']
 const WH_COLOR = { '3PL': '#4A90D9', 'WS': '#E6A23C', 'SD4': '#67C23A' }
@@ -151,6 +153,14 @@ function loadPO() {
 
 function backToPO()   { curPO.value = null; curSKU.value = null }
 function backToList() { curSKU.value = null }
+
+// 后端就绪后：refresh 应重新拉 PO 元数据（item 列表/箱入/备注等只读字段），
+// 保留 pk/showDI/comboExpanded/remarksStatus 这些用户当前正在录入的本地态
+async function refreshData() {
+  if (!curPO.value) return
+  showToast('已是最新（後端待接入）', 'success')
+}
+const { refreshNow } = usePageRefresh(refreshData)
 
 function openSKU(sku) {
   curSKU.value = sku
@@ -305,6 +315,7 @@ function allocRemaining(it, alloc) {
     <div class="hdr">
       <button class="hdr-back" @click="backToPO">‹</button>
       <h1>SKU 清單</h1>
+      <RefreshButton :on-refresh="refreshNow" />
     </div>
     <div class="flex justify-between mb-2 text-xs text-gray-500 font-semibold">
       <span>PO: {{ curPO.po }}</span>
@@ -368,6 +379,7 @@ function allocRemaining(it, alloc) {
     <div class="hdr">
       <button class="hdr-back" @click="backToList">‹</button>
       <h1>{{ curItem.name }}</h1>
+      <RefreshButton :on-refresh="refreshNow" />
     </div>
     <div class="font-mono text-xs font-bold mb-2.5">條碼: {{ curItem.barcode }}</div>
 

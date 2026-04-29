@@ -15,6 +15,8 @@
  */
 import { computed, reactive, ref } from 'vue'
 import { showToast } from '@/composables/useToast'
+import { usePageRefresh } from '@/composables/usePageRefresh'
+import RefreshButton from '@/components/RefreshButton.vue'
 
 const COMBO_OPTIONS = [
   { suffix: 'A', multiplier: 2, label: 'x2' },
@@ -129,6 +131,14 @@ function enterPO() {
 
 function backToEntry() { entered.value = false }
 
+// 后端就绪后：refresh 应重新拉 PO + counted 字段（其他人提交的更新），
+// 保留用户在 tpl/ws/extra/combos 字段的当前输入
+async function refreshData() {
+  if (!entered.value) return
+  showToast('已是最新（後端待接入）', 'success')
+}
+const { refreshNow } = usePageRefresh(refreshData)
+
 function addCol() {
   const i = extraCols.findIndex(c => !c.active)
   if (i !== -1) extraCols[i].active = true
@@ -216,6 +226,7 @@ function rowIndex(row) { return rows.indexOf(row) }
             class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg outline-none w-52"
             placeholder="搜尋 SKU / 名稱"
           />
+          <RefreshButton :on-refresh="refreshNow" />
           <button class="bg-emerald-600 text-white text-xs font-semibold px-4 py-1.5 rounded-lg border-0 cursor-pointer" @click="exportExcel">⬇ 匯出</button>
           <button class="bg-blue-600 text-white text-xs font-semibold px-4 py-1.5 rounded-lg border-0 cursor-pointer" @click="saveData">💾 儲存</button>
         </div>

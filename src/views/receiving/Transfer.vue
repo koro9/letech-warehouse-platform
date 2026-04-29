@@ -18,6 +18,8 @@
  */
 import { computed, nextTick, reactive, ref } from 'vue'
 import { showToast } from '@/composables/useToast'
+import { usePageRefresh } from '@/composables/usePageRefresh'
+import RefreshButton from '@/components/RefreshButton.vue'
 
 // Mock：PO → 多个 TR
 const poData = reactive({
@@ -191,6 +193,14 @@ function searchPO() {
   else showToast('找不到此 PO，測試請輸入: 12345', 'error')
 }
 
+// 后端就绪后：trlist 刷新 = 重新拉 TR 列表 + 各 TR 进度
+//                trdetail/item 刷新 = 重新拉当前 TR 的 inv 数据，保留 pickQty/boxes 输入
+async function refreshData() {
+  if (view.value === 'search') return
+  showToast('已是最新（後端待接入）', 'success')
+}
+const { refreshNow } = usePageRefresh(refreshData)
+
 function goBack() {
   closeScanner()
   bcQuery.value = ''; bcError.value = ''
@@ -356,6 +366,18 @@ function isCutTr(id) { return /^TR-\d+-\d+$/.test(id) }
         <button
           class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer"
           style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
+          @click="refreshNow"
+        >
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          刷新
+        </button>
+        <button
+          class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer"
+          style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
           @click="exportAllTR"
         >⬇ 匯出全部</button>
       </div>
@@ -472,6 +494,17 @@ function isCutTr(id) { return /^TR-\d+-\d+$/.test(id) }
         <h1 class="text-base font-black truncate">{{ curTR?.id }}</h1>
         <p class="text-xs" style="color:rgba(167,139,250,.5);">{{ curTR?.from }} → {{ curTR?.to }}</p>
       </div>
+      <button
+        class="px-3 py-2 rounded-xl text-white cursor-pointer flex items-center justify-center"
+        style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
+        @click="refreshNow"
+      >
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10" />
+          <polyline points="1 20 1 14 7 14" />
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+        </svg>
+      </button>
       <button
         class="px-3 py-2 rounded-xl text-white text-xs font-bold cursor-pointer"
         style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
