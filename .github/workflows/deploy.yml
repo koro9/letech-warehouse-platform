@@ -1,8 +1,10 @@
 name: Build and Deploy
 
+# ⏸ 本地开发阶段：暂停 push 自动触发，避免每次提交都打到生产服务器
+# 需要部署时去 Actions 页面手动 Run workflow，或恢复下面注释掉的 push 触发器
 on:
-  push:
-    branches: [main]
+  # push:
+  #   branches: [main]
   workflow_dispatch:
 
 # 同一时间只允许一个部署 job
