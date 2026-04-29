@@ -39,16 +39,6 @@ async function onSubmit() {
 function onOdooLogin() {
   auth.loginByOdoo()
 }
-
-// TODO(dev-only): 后端 /whoami + /login/badge 上线后整段删除
-function devLoginParttime() {
-  auth.devLoginParttime()
-  router.replace({ name: 'home' })
-}
-function devLoginInternal() {
-  auth.devLoginInternal()
-  router.replace({ name: 'home' })
-}
 </script>
 
 <template>
@@ -96,25 +86,6 @@ function devLoginInternal() {
       <p class="text-center text-[11px] text-gray-400 mt-2">
         通常内部员工从 Odoo 菜单进入此系统，不需要走这里
       </p>
-
-      <!-- TODO(dev-only): 后端 /whoami + /login/badge 上线后整段删除 -->
-      <div class="mt-6 pt-4 border-t border-dashed border-amber-300 space-y-2">
-        <p class="text-[11px] text-amber-700 font-bold text-center">🚧 开发用快速登录</p>
-        <button
-          type="button"
-          class="w-full py-2 text-xs text-amber-700 border border-dashed border-amber-300 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
-          @click="devLoginParttime"
-        >
-          🔖 模拟兼职登录（Lily / staff）
-        </button>
-        <button
-          type="button"
-          class="w-full py-2 text-xs text-amber-700 border border-dashed border-amber-300 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
-          @click="devLoginInternal"
-        >
-          🏢 模拟内部登录（Tommy / warehouse_admin）
-        </button>
-      </div>
 
       <p class="text-center text-xs text-gray-400 mt-6">
         v{{ '0.1.0' }} · 不知道编号？联系主管

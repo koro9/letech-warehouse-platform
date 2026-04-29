@@ -22,8 +22,7 @@ import { auth as authApi } from '@/api'
 const ODOO_LOGIN_URL  = '/web/login?redirect=%2Fwarehouse%2F'
 const ODOO_LOGOUT_URL = '/web/session/logout?redirect=%2Fwarehouse%2F'
 
-const LS_TOKEN     = 'warehouse_token'
-const LS_DEV_IDENT = 'wh_dev_identity'    // 仅 devLogin 使用
+const LS_TOKEN = 'warehouse_token'
 
 export const useAuthStore = defineStore('auth', () => {
   const type        = ref(null)    // 'internal' | 'parttime' | null
@@ -51,18 +50,8 @@ export const useAuthStore = defineStore('auth', () => {
         avatar:      data.avatar,
       }
     } catch {
-      // 后端 401 / 后端未就绪 — 看是否有 dev 持久化身份
-      const dev = loadDevIdentity()
-      if (dev) {
-        type.value = dev.type
-        identity.value = dev.identity
-        if (dev.type === 'parttime' && !token.value) {
-          token.value = 'dev-token'
-          localStorage.setItem(LS_TOKEN, 'dev-token')
-        }
-      } else {
-        resetState()
-      }
+      // 后端 401 / 后端未就绪 → 视为未登录
+      resetState()
     } finally {
       bootstrapped.value = true
     }
@@ -121,38 +110,10 @@ export const useAuthStore = defineStore('auth', () => {
     identity.value = null
     token.value = ''
     localStorage.removeItem(LS_TOKEN)
-    localStorage.removeItem(LS_DEV_IDENT)
-    // 清掉旧版本可能残留的 key
+    // 清掉旧版本残留的 key（包括早期 dev 模式留下的）
     localStorage.removeItem('employee_id')
     localStorage.removeItem('employee_name')
-  }
-
-  // ============================================================
-  // TODO(dev-only): 后端 /whoami 上线后删除以下 dev 模拟逻辑 +
-  //                  Login.vue 里两个 dev 按钮
-  // ============================================================
-  function devLoginInternal() {
-    type.value = 'internal'
-    identity.value = { name: 'Tommy (Dev)', user_id: 1, role: 'warehouse_admin' }
-    persistDevIdentity()
-  }
-  function devLoginParttime() {
-    type.value = 'parttime'
-    identity.value = { name: 'Lily (Dev)', operator_id: 999, role: 'staff' }
-    token.value = 'dev-token'
-    localStorage.setItem(LS_TOKEN, 'dev-token')
-    persistDevIdentity()
-  }
-  function persistDevIdentity() {
-    localStorage.setItem(LS_DEV_IDENT, JSON.stringify({
-      type: type.value, identity: identity.value,
-    }))
-  }
-  function loadDevIdentity() {
-    try {
-      const raw = localStorage.getItem(LS_DEV_IDENT)
-      return raw ? JSON.parse(raw) : null
-    } catch { return null }
+    localStorage.removeItem('wh_dev_identity')
   }
 
   return {
@@ -162,7 +123,5 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn, isInternal, isParttime,
     // 操作
     bootstrap, loginByBadge, loginByOdoo, logout, canAccess,
-    // dev-only
-    devLoginInternal, devLoginParttime,
   }
 })
