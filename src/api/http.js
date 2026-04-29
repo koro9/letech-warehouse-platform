@@ -20,6 +20,9 @@ import { triggerCurrentRefresh } from '@/composables/usePageRefresh'
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 30000,
+  // 同域 cookie 自动带（Odoo 内部用户走 session cookie 鉴权）
+  // 跨域时浏览器默认不发 cookie，必须显式 withCredentials: true 才生效
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -45,9 +48,9 @@ http.interceptors.response.use(
     const status = error.response?.status
 
     if (status === 401) {
+      // 不在这里清 store 状态（避免循环 import）；只清 JWT，跳 /login，
+      // 让 auth store 在 /login 页 bootstrap 时根据后端 /whoami 决定真实状态
       localStorage.removeItem('warehouse_token')
-      localStorage.removeItem('employee_id')
-      localStorage.removeItem('employee_name')
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }

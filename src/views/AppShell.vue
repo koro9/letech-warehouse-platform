@@ -18,6 +18,7 @@ const systems = [
 
 // 每个系统的侧边栏项 — 跟 demo 顺序对齐
 // disabled: true 表示页面尚未实现（点击不路由）
+// requires: 权限 gate，传给 auth.canAccess —— 不满足时整个项隐藏
 const sidebars = {
   dashboard: [
     { name: 'home',      label: '控制台',     icon: '🏠' },
@@ -29,7 +30,7 @@ const sidebars = {
     { name: 'inventory', label: '库存对比',   icon: '📊' },
     { name: 'recon',     label: '对账',       icon: '✅' },
     { name: 'profile',   label: '个人信息',   icon: '⚙️' },
-    { name: 'admin',     label: '管理',       icon: '👥' },
+    { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },
   ],
   tpl: [
     { name: 'tpl-home',      label: '系統首頁',       icon: '🏠' },
@@ -51,15 +52,20 @@ const sidebars = {
 }
 
 const currentSystem = computed(() => route.meta?.system || 'dashboard')
-const navItems = computed(() => sidebars[currentSystem.value] || [])
+const navItems = computed(() =>
+  (sidebars[currentSystem.value] || []).filter(
+    item => !item.requires || auth.canAccess(item.requires),
+  ),
+)
 
 function switchSystem(sys) {
   router.push(sys.home)
 }
 
+// auth.logout() 内部按 type 决定走 Odoo /web/session/logout 还是 /login，
+// 它会自己 window.location.href 跳转，不需要 router.push
 function handleLogout() {
   auth.logout()
-  router.push({ name: 'login' })
 }
 </script>
 
@@ -84,11 +90,21 @@ function handleLogout() {
         </button>
       </div>
 
-      <button class="user-btn ml-auto flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-teal text-white text-xs font-semibold"
-              @click="handleLogout">
-        <span>👤</span>
-        <span>{{ auth.employeeName || 'User' }}</span>
-        <span class="opacity-70">登出</span>
+      <!-- 用户徽标：按身份类型显示不同样式 -->
+      <button
+        class="ml-auto flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+        :class="auth.isInternal
+          ? 'bg-blue-500 text-white hover:bg-blue-600'
+          : 'bg-teal text-white hover:bg-teal/90'"
+        :title="auth.isInternal ? '点击登出（同时退出 Odoo session）' : '点击登出（清除登录态，下个员工接班）'"
+        @click="handleLogout"
+      >
+        <span v-if="auth.isInternal">🏢</span>
+        <span v-else>🔖</span>
+        <span>{{ auth.identity?.name || 'User' }}</span>
+        <span class="opacity-60 text-[10px]">·</span>
+        <span class="opacity-80">{{ auth.isInternal ? 'Odoo' : '兼职' }}</span>
+        <span class="opacity-70 ml-1">登出</span>
       </button>
     </header>
 

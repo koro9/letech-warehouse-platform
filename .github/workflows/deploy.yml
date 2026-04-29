@@ -1,71 +1,25 @@
-name: Build and Deploy
+name: Deploy to AWS Sydney
 
-# ⏸ 本地开发阶段：暂停 push 自动触发，避免每次提交都打到生产服务器
-# 需要部署时去 Actions 页面手动 Run workflow，或恢复下面注释掉的 push 触发器
+# 跟 letech (Odoo 仓库) 用同一套 secrets：EC2_HOST / EC2_USER / EC2_SSH_KEY
+# 服务器的 update-vue.sh 会自己 git pull + docker compose 重建 nginx 镜像
+
 on:
-  # push:
-  #   branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
-# 同一时间只允许一个部署 job
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-        env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || '/api' }}
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          retention-days: 7
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
-    environment: production
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          name: dist
-          path: dist
-
-      - name: Deploy via rsync
-        uses: easingthemes/ssh-deploy@main
-        with:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          REMOTE_HOST: ${{ secrets.SERVER_HOST }}
-          REMOTE_USER: ${{ secrets.SERVER_USER }}
-          SOURCE: "dist/"
-          TARGET: ${{ secrets.SERVER_DIST_PATH || '/opt/odoo19-deploy/vue-dist/' }}
-          ARGS: "-rltgoDzv --delete"
-
-      - name: Reload nginx
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
           script: |
-            cd /opt/odoo19-deploy
-            sudo /usr/bin/docker compose exec nginx nginx -s reload || true
+            set -e
+            cd /opt/odoo19-deploy/scripts
+            bash update-vue.sh

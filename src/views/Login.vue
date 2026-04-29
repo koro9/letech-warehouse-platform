@@ -17,18 +17,13 @@ onMounted(async () => {
   inputEl.value?.focus()
 })
 
-// TODO(dev-only): 后端就绪后删除此函数 + 模板里的"免登入"按钮
-function devSkipLogin() {
-  auth.devLogin()
-  router.replace({ name: 'home' })
-}
-
+// 兼职员工：扫胸牌条码
 async function onSubmit() {
   if (!barcode.value.trim()) return
   loading.value = true
   error.value = ''
   try {
-    await auth.login(barcode.value.trim())
+    await auth.loginByBadge(barcode.value.trim())
     const redirect = route.query.redirect || { name: 'home' }
     router.replace(redirect)
   } catch (err) {
@@ -39,6 +34,21 @@ async function onSubmit() {
     loading.value = false
   }
 }
+
+// 内部 Odoo 用户：跳 Odoo 登录页（登完 redirect 回 /warehouse/）
+function onOdooLogin() {
+  auth.loginByOdoo()
+}
+
+// TODO(dev-only): 后端 /whoami + /login/badge 上线后整段删除
+function devLoginParttime() {
+  auth.devLoginParttime()
+  router.replace({ name: 'home' })
+}
+function devLoginInternal() {
+  auth.devLoginInternal()
+  router.replace({ name: 'home' })
+}
 </script>
 
 <template>
@@ -47,9 +57,10 @@ async function onSubmit() {
       <div class="text-center mb-8">
         <div class="text-3xl mb-2">📦</div>
         <h1 class="text-2xl font-light text-gray-800">LeTech Warehouse</h1>
-        <p class="text-sm text-gray-400 mt-1">扫描胸牌条码登录</p>
+        <p class="text-sm text-gray-400 mt-1">兼职员工扫胸牌登录</p>
       </div>
 
+      <!-- 兼职员工：扫胸牌 -->
       <form @submit.prevent="onSubmit" class="g-card p-6 space-y-4">
         <input
           ref="inputEl"
@@ -67,14 +78,43 @@ async function onSubmit() {
         <p v-if="error" class="text-sm text-red-500 text-center">{{ error }}</p>
       </form>
 
-      <!-- TODO(dev-only): 后端 letech_warehouse_api 上线后整段删除 -->
+      <!-- 分隔 -->
+      <div class="flex items-center gap-3 my-5 text-xs text-gray-400">
+        <div class="flex-1 h-px bg-gray-200"></div>
+        <span>或</span>
+        <div class="flex-1 h-px bg-gray-200"></div>
+      </div>
+
+      <!-- 内部 Odoo 用户：跳转 Odoo 登录 -->
       <button
         type="button"
-        class="w-full mt-3 py-2 text-xs text-amber-700 border border-dashed border-amber-300 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
-        @click="devSkipLogin"
+        class="w-full py-3 rounded-lg bg-white border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+        @click="onOdooLogin"
       >
-        🚧 免登入（开发用，正式上线移除）
+        🏢 我有 Odoo 账号 — 跳转登录
       </button>
+      <p class="text-center text-[11px] text-gray-400 mt-2">
+        通常内部员工从 Odoo 菜单进入此系统，不需要走这里
+      </p>
+
+      <!-- TODO(dev-only): 后端 /whoami + /login/badge 上线后整段删除 -->
+      <div class="mt-6 pt-4 border-t border-dashed border-amber-300 space-y-2">
+        <p class="text-[11px] text-amber-700 font-bold text-center">🚧 开发用快速登录</p>
+        <button
+          type="button"
+          class="w-full py-2 text-xs text-amber-700 border border-dashed border-amber-300 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
+          @click="devLoginParttime"
+        >
+          🔖 模拟兼职登录（Lily / staff）
+        </button>
+        <button
+          type="button"
+          class="w-full py-2 text-xs text-amber-700 border border-dashed border-amber-300 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
+          @click="devLoginInternal"
+        >
+          🏢 模拟内部登录（Tommy / warehouse_admin）
+        </button>
+      </div>
 
       <p class="text-center text-xs text-gray-400 mt-6">
         v{{ '0.1.0' }} · 不知道编号？联系主管

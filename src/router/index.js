@@ -5,10 +5,8 @@ import { useAuthStore } from '@/stores/auth'
  * 路由组织：
  *   - 登录：/login
  *   - AppShell 套壳，路由 meta.system 决定顶部 tab 与侧边栏
- *   - 三大业务系统：dashboard / tpl / receiving
- *
- * 尚未实现的页面（demo 里有但还没移植）暂不注册路由，
- * 在 AppShell 的 sidebars 配置里标 disabled:true（灰显但不可点）。
+ *   - meta.requires 用于权限 gate（参见 auth.canAccess）：
+ *       'type:internal' / 'role:warehouse_admin' / 'any' / 不设
  */
 const routes = [
   {
@@ -31,7 +29,8 @@ const routes = [
       { path: 'inventory',  name: 'inventory', component: () => import('@/views/dashboard/Inventory.vue'), meta: { system: 'dashboard' } },
       { path: 'recon',      name: 'recon',     component: () => import('@/views/dashboard/Recon.vue'),     meta: { system: 'dashboard' } },
       { path: 'profile',    name: 'profile',   component: () => import('@/views/dashboard/Profile.vue'),   meta: { system: 'dashboard' } },
-      { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard' } },
+      // 用户管理只给内部用户（兼职员工不应能看），Odoo 那边角色定好后改成 'role:warehouse_admin'
+      { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard', requires: 'type:internal' } },
 
       // ===== 3PL 倉庫平台 =====
       { path: 'tpl',           name: 'tpl-home',      component: () => import('@/views/tpl/Home.vue'),      meta: { system: 'tpl' } },
@@ -62,12 +61,27 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  if (!to.meta.public && !auth.isLoggedIn) {
+
+  // 首次进任何路由前，先让后端识别身份
+  if (!auth.bootstrapped) {
+    await auth.bootstrap()
+  }
+
+  // 公共页面（如 /login）
+  if (to.meta.public) {
+    if (to.name === 'login' && auth.isLoggedIn) return { name: 'home' }
+    return true
+  }
+
+  // 受保护路由：需要登录
+  if (!auth.isLoggedIn) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (to.name === 'login' && auth.isLoggedIn) {
+
+  // 受保护路由：需要特定角色 / 类型
+  if (to.meta.requires && !auth.canAccess(to.meta.requires)) {
     return { name: 'home' }
   }
 })
