@@ -28,7 +28,8 @@ export function whoami() {
 /**
  * 兼职员工扫胸牌登录
  * 后端契约：POST /api/warehouse/login/badge { employee_barcode }
- *           200 → { token, expires_in }   token 有效期约 10 小时
+ *           200 → { token, expires_in, name, operator_id, role, avatar? }
+ *                 token 有效期约 10 小时；同时返回 identity 各字段，前端直接用，不再调 whoami
  *           400 → 该胸牌未在系统注册
  */
 export function loginByBadge(employee_barcode) {

@@ -35,9 +35,15 @@ async function onSubmit() {
   }
 }
 
-// 内部 Odoo 用户：跳 Odoo 登录页（登完 redirect 回 /warehouse/）
-function onOdooLogin() {
-  auth.loginByOdoo()
+// 内部 Odoo 用户：
+//   - 浏览器已有 Odoo cookie → 直接 claim 进系统
+//   - 没 cookie → loginByOdoo 内部跳到 Odoo /web/login
+async function onOdooLogin() {
+  await auth.loginByOdoo()
+  if (auth.isLoggedIn) {
+    const redirect = route.query.redirect || { name: 'home' }
+    router.replace(redirect)
+  }
 }
 </script>
 
@@ -75,13 +81,13 @@ function onOdooLogin() {
         <div class="flex-1 h-px bg-gray-200"></div>
       </div>
 
-      <!-- 内部 Odoo 用户：跳转 Odoo 登录 -->
+      <!-- 内部 Odoo 用户：claim 当前 Odoo session，没有就跳 Odoo 登录 -->
       <button
         type="button"
         class="w-full py-3 rounded-lg bg-white border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
         @click="onOdooLogin"
       >
-        🏢 我有 Odoo 账号 — 跳转登录
+        🏢 使用 Odoo 账号登录
       </button>
       <p class="text-center text-[11px] text-gray-400 mt-2">
         通常内部员工从 Odoo 菜单进入此系统，不需要走这里

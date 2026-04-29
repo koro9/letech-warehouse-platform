@@ -96,7 +96,7 @@ function handleLogout() {
         :class="auth.isInternal
           ? 'bg-blue-500 text-white hover:bg-blue-600'
           : 'bg-teal text-white hover:bg-teal/90'"
-        :title="auth.isInternal ? '点击登出（同时退出 Odoo session）' : '点击登出（清除登录态，下个员工接班）'"
+        :title="auth.isInternal ? '点击登出（仅退出 Vue 系统，Odoo session 保留）' : '点击登出（清除登录态，下个员工接班）'"
         @click="handleLogout"
       >
         <span v-if="auth.isInternal">🏢</span>

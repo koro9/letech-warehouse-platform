@@ -8,7 +8,8 @@ import { auth as authApi } from '@/api'
  *   internal (Odoo 内部用户)
  *     - 从 Odoo 菜单跳过来，已有 Odoo session cookie
  *     - API 调用自动带 cookie，后端按 cookie 识别
- *     - 登出 = 跳 Odoo /web/session/logout 真踢 session
+ *     - 登出 = 仅清 Vue 系统的状态，**不动 Odoo session**
+ *       这样允许"Odoo 用 admin、Vue 用兼职"这种混搭场景
  *
  *   parttime (兼职员工)
  *     - 在 /login 扫胸牌
@@ -16,13 +17,17 @@ import { auth as authApi } from '@/api'
  *     - JWT 存 localStorage，axios 自动加 Authorization
  *     - 登出 = 通知后端 + 清本地 → 跳 /login（适配多人轮流用同一台机器）
  *
- * 真实身份永远以后端 /whoami 为准，不在前端判断。
+ * 关键设计：登出后用 LS_LOGGED_OUT 标记"用户主动登出意图"
+ *   - bootstrap 看到这个标记就跳过 whoami，即使浏览器还有 cookie 也不自动 claim
+ *   - 直到用户在 /login 页明确点登录按钮（扫胸牌 或 "用 Odoo 身份"）才清除标记
+ *
+ * 真实身份永远以后端 /whoami 为准，前端不判断。
  */
 
-const ODOO_LOGIN_URL  = '/web/login?redirect=%2Fwarehouse%2F'
-const ODOO_LOGOUT_URL = '/web/session/logout?redirect=%2Fwarehouse%2F'
+const ODOO_LOGIN_URL = '/web/login?redirect=%2Fwarehouse%2F'
 
-const LS_TOKEN = 'warehouse_token'
+const LS_TOKEN      = 'warehouse_token'
+const LS_LOGGED_OUT = 'wh_logged_out'    // 用户主动登出标记，bootstrap 期间短路 whoami
 
 export const useAuthStore = defineStore('auth', () => {
   const type        = ref(null)    // 'internal' | 'parttime' | null
@@ -35,10 +40,15 @@ export const useAuthStore = defineStore('auth', () => {
   const isParttime  = computed(() => type.value === 'parttime')
 
   /**
-   * 启动时 / 刷新时调用：拿后端识别身份
-   * 失败 → 清状态（视为未登录）
+   * 启动时 / 刷新时调用
+   *   - 有"主动登出"标记 → 直接跳过 whoami，状态保持登出
+   *   - 否则正常去后端 /whoami 拿身份（cookie 或 JWT 二选一识别）
    */
   async function bootstrap() {
+    if (localStorage.getItem(LS_LOGGED_OUT) === '1') {
+      bootstrapped.value = true
+      return
+    }
     try {
       const data = await authApi.whoami()
       type.value = data.type
@@ -57,35 +67,57 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** 兼职员工：扫胸牌登录 */
+  /**
+   * 兼职员工：扫胸牌登录
+   * 用户在 /login 主动选了"扫胸牌"路径 = 明确的 parttime 意图，
+   * 直接用 /login/badge 响应里的 identity 字段，**不调 whoami** —— 否则浏览器
+   * 残留的 Odoo cookie 会被后端 whoami 误识别成 internal，盖掉刚登的兼职身份。
+   */
   async function loginByBadge(barcode) {
+    localStorage.removeItem(LS_LOGGED_OUT)
     const data = await authApi.loginByBadge(barcode)
     token.value = data.token
     localStorage.setItem(LS_TOKEN, data.token)
-    // 拿到 token 之后立即 bootstrap 同步 identity（也避免后端两套接口数据形状不一致）
-    await bootstrap()
+    type.value = 'parttime'
+    identity.value = {
+      name:        data.name,
+      operator_id: data.operator_id,
+      role:        data.role,
+      avatar:      data.avatar,
+    }
+    bootstrapped.value = true
   }
 
-  /** 内部用户：跳 Odoo 登录页（登完 redirect 回 /warehouse/）*/
-  function loginByOdoo() {
+  /**
+   * 内部用户登录：
+   *   - 已有 Odoo cookie → 重跑 bootstrap 直接 claim
+   *   - 没 Odoo cookie → 跳 Odoo /web/login
+   *
+   * 同样原理：用户主动点"使用 Odoo 账号登录" = 明确 internal 意图。
+   * 先清掉残留的 parttime JWT（如果有），避免后端 whoami 见到 JWT 把人识别成 parttime。
+   */
+  async function loginByOdoo() {
+    localStorage.removeItem(LS_LOGGED_OUT)
+    token.value = ''
+    localStorage.removeItem(LS_TOKEN)
+    await bootstrap()
+    if (isLoggedIn.value) return    // claim 成功，调用方负责跳转
+    // 没 Odoo session，导到 Odoo 登录页
     window.location.href = ODOO_LOGIN_URL
   }
 
-  /** 登出：按 type 走不同路径 */
+  /**
+   * 登出 — 只关 Vue 系统这边
+   *   - parttime: best-effort 通知后端把 JWT 加 denylist
+   *   - internal: 不动 Odoo session（用户可能 Odoo 和 Vue 用不同账号）
+   *   - 设置 LS_LOGGED_OUT 标记让下次 bootstrap 不再 claim cookie
+   */
   async function logout() {
-    if (isInternal.value) {
-      // 真踢 Odoo session（清前端是顺带的，跳转后整个页面会重载）
-      resetState()
-      window.location.href = ODOO_LOGOUT_URL
-      return
-    }
     if (isParttime.value) {
       try { await authApi.logout() } catch { /* best-effort */ }
-      resetState()
-      window.location.href = '/login'
-      return
     }
     resetState()
+    localStorage.setItem(LS_LOGGED_OUT, '1')
     window.location.href = '/login'
   }
 
@@ -105,6 +137,10 @@ export const useAuthStore = defineStore('auth', () => {
     return true
   }
 
+  /**
+   * 清前端状态。注意：不清 LS_LOGGED_OUT 标记 —— 那个由 logout() 设置、
+   * loginByBadge / loginByOdoo 清除，跟这里的 state 重置是两件事
+   */
   function resetState() {
     type.value = null
     identity.value = null
