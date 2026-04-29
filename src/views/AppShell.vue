@@ -134,8 +134,14 @@ function handleLogout() {
       </nav>
 
       <!-- 内容区 -->
+      <!-- KeepAlive 缓存已访问过的页面实例，切换菜单不重建 reactive 树
+           :max=10 LRU 上限，超过自动销毁最旧的；user 输入态也跟着保留 -->
       <main class="flex-1 overflow-y-auto bg-gray-100">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <KeepAlive :max="10">
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </main>
     </div>
 
