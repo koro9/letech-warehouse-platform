@@ -28,6 +28,23 @@ const http = axios.create({
 
 const WRITE_METHODS = new Set(['post', 'put', 'patch', 'delete'])
 
+/**
+ * 生成 Idempotency-Key 用的 UUID v4。
+ * crypto.randomUUID() 只在 Secure Context (HTTPS / localhost) 可用，
+ * 测试环境若跑在纯 HTTP 上会抛 TypeError —— 此时降级到 Math.random 实现。
+ * 幂等 key 不需要密码学强度，普通 UUID v4 足够。
+ */
+function makeRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try { return crypto.randomUUID() } catch { /* 走降级 */ }
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('warehouse_token')
   if (token) {
@@ -37,7 +54,7 @@ http.interceptors.request.use((config) => {
   // 调用方如需在重试时复用同一个 key（保证整段重试链条都被去重），
   // 在调用前传 config.headers['Idempotency-Key'] = <已有uuid> 即可覆盖
   if (WRITE_METHODS.has(config.method?.toLowerCase()) && !config.headers['Idempotency-Key']) {
-    config.headers['Idempotency-Key'] = crypto.randomUUID()
+    config.headers['Idempotency-Key'] = makeRequestId()
   }
   return config
 })
