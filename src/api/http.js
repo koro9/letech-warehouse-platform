@@ -50,9 +50,11 @@ http.interceptors.response.use(
     if (status === 401) {
       // 不在这里清 store 状态（避免循环 import）；只清 JWT，跳 /login，
       // 让 auth store 在 /login 页 bootstrap 时根据后端 /whoami 决定真实状态
+      // 用 BASE_URL 拼接路径：dev = /login，prod = /warehouse/login（跟 Odoo 同域不冲突）
       localStorage.removeItem('warehouse_token')
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      const loginPath = `${import.meta.env.BASE_URL}login`
+      if (window.location.pathname !== loginPath) {
+        window.location.href = loginPath
       }
     }
 

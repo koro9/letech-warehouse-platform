@@ -2,10 +2,14 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
+    // 生产部署在 Odoo 同域的 /warehouse/ 下，所有内部路由 / asset 都带这个前缀；
+    // dev server 直接挂在 localhost:5173/，不带前缀
+    // 想自定义可以在 .env 里设 VITE_BASE_PATH
+    base: env.VITE_BASE_PATH || (command === 'build' ? '/warehouse/' : '/'),
     plugins: [vue()],
     resolve: {
       alias: {

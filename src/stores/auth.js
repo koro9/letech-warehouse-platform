@@ -24,7 +24,11 @@ import { auth as authApi } from '@/api'
  * 真实身份永远以后端 /whoami 为准，前端不判断。
  */
 
-const ODOO_LOGIN_URL = '/web/login?redirect=%2Fwarehouse%2F'
+// Vite base：dev = '/'，prod 构建 = '/warehouse/'（跟 Odoo 共域，不同根路径）
+// 用 BASE_URL 拼绝对路径，避免硬编码 '/login' 撞到 Odoo 的根路由
+const APP_BASE = import.meta.env.BASE_URL          // 比如 '/warehouse/'
+const LOGIN_PATH = `${APP_BASE}login`              // '/warehouse/login'
+const ODOO_LOGIN_URL = `/web/login?redirect=${encodeURIComponent(APP_BASE)}`
 
 const LS_TOKEN      = 'warehouse_token'
 const LS_LOGGED_OUT = 'wh_logged_out'    // 用户主动登出标记，bootstrap 期间短路 whoami
@@ -118,7 +122,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     resetState()
     localStorage.setItem(LS_LOGGED_OUT, '1')
-    window.location.href = '/login'
+    window.location.href = LOGIN_PATH
   }
 
   /**
