@@ -1,41 +1,33 @@
 <script setup>
 /**
- * S1 出库扫码（demo s1-outbound 的 Vue 重写）
+ * 出库扫码 — 复刻 demo s1-outbound
  *
  * 流程：
- *   1. 扫订单号 → 调 GET /api/warehouse/outbound/:orderNumber → 拉 SKU 清单
- *   2. 扫商品条码 → 找到对应行 → 调 POST scan → +1
- *   3. 全部扫完 → 自动完成；或点"强制出库"
+ *   1. 扫订单号 → GET /api/warehouse/outbound/:orderNumber
+ *   2. 扫商品条码 → 找到对应行 → POST scan → +1
+ *   3. 全部扫完自动完成；或点"强制出库"
  */
 import { ref, computed, nextTick } from 'vue'
-import { warehouseAPI } from '@/utils/api'
+import { outbound } from '@/api'
+import { showToast } from '@/composables/useToast'
 
 const orderInput = ref('')
 const skuInput = ref('')
 const printAfterScan = ref(false)
 const items = ref([])
 const orderNumber = ref('')
-const error = ref('')
 const loading = ref(false)
 
 const skuInputEl = ref(null)
 
-const totalRequired = computed(() =>
-  items.value.reduce((s, i) => s + i.required, 0)
-)
-const totalScanned = computed(() =>
-  items.value.reduce((s, i) => s + i.scanned, 0)
-)
-const completed = computed(() =>
-  items.value.length > 0 && totalScanned.value >= totalRequired.value
-)
+const totalRequired = computed(() => items.value.reduce((s, i) => s + i.required, 0))
+const totalScanned = computed(() => items.value.reduce((s, i) => s + i.scanned, 0))
 
 async function loadOrder() {
   if (!orderInput.value.trim()) return
   loading.value = true
-  error.value = ''
   try {
-    const data = await warehouseAPI.getOutboundOrder(orderInput.value.trim())
+    const data = await outbound.getOutboundOrder(orderInput.value.trim())
     orderNumber.value = data.order_number
     items.value = data.items.map((it) => ({
       sku: it.sku,
@@ -48,7 +40,7 @@ async function loadOrder() {
     await nextTick()
     skuInputEl.value?.focus()
   } catch (err) {
-    error.value = err.response?.data?.error || '订单不存在或不可出库'
+    showToast(err.response?.data?.error || '订单不存在或不可出库', 'error')
     items.value = []
   } finally {
     loading.value = false
@@ -58,31 +50,29 @@ async function loadOrder() {
 async function scanSku() {
   if (!skuInput.value.trim() || !orderNumber.value) return
   const code = skuInput.value.trim()
-  // 先在本地 items 找匹配（条码或 SKU）
   const item = items.value.find(
     (i) => i.barcode === code || i.barcode2 === code || i.sku === code
   )
   if (!item) {
-    error.value = `❌ 此订单无 ${code}`
+    showToast(`❌ 此订单无 ${code}`, 'error')
     skuInput.value = ''
     skuInputEl.value?.focus()
     return
   }
   if (item.scanned >= item.required) {
-    error.value = `⚠️ ${item.sku} 已扫满`
+    showToast(`⚠️ ${item.sku} 已扫满`, 'warning')
     skuInput.value = ''
     return
   }
   try {
-    await warehouseAPI.scanOutbound({
+    await outbound.scanOutbound({
       orderNumber: orderNumber.value,
       sku: item.sku,
       qty: 1,
     })
     item.scanned += 1
-    error.value = ''
   } catch (err) {
-    error.value = err.response?.data?.error || '扫码失败'
+    showToast(err.response?.data?.error || '扫码失败', 'error')
   } finally {
     skuInput.value = ''
     skuInputEl.value?.focus()
@@ -94,7 +84,6 @@ function reset() {
   skuInput.value = ''
   items.value = []
   orderNumber.value = ''
-  error.value = ''
 }
 
 async function forceComplete() {
@@ -102,11 +91,11 @@ async function forceComplete() {
   if (!confirm('确定强制完成出库？未扫的 SKU 视为漏扫。')) return
   loading.value = true
   try {
-    await warehouseAPI.forceCompleteOutbound(orderNumber.value)
-    alert('已强制完成')
+    await outbound.forceCompleteOutbound(orderNumber.value)
+    showToast('已强制完成', 'success')
     reset()
   } catch (err) {
-    error.value = err.response?.data?.error || '操作失败'
+    showToast(err.response?.data?.error || '操作失败', 'error')
   } finally {
     loading.value = false
   }
@@ -133,42 +122,25 @@ async function forceComplete() {
         placeholder="扫描商品条码"
         :disabled="!orderNumber"
       />
-      <label class="flex items-center gap-2.5 cursor-pointer">
-        <input v-model="printAfterScan" type="checkbox" class="w-4 h-4" />
-        <span class="text-sm text-gray-500">扫完后自动打印</span>
-      </label>
+      <div class="g-toggle-wrap">
+        <button class="g-toggle" :class="{ on: printAfterScan }" @click="printAfterScan = !printAfterScan" />
+        <span class="text-sm text-gray-500">是否打印</span>
+      </div>
       <div class="ml-auto flex gap-2.5">
-        <button class="g-btn g-btn-teal" @click="reset">重置</button>
-        <button
-          class="g-btn g-btn-pink"
-          :disabled="!orderNumber || loading"
-          @click="forceComplete"
-        >
-          强制出库
-        </button>
+        <button class="g-btn g-btn-teal" @click="reset">重制</button>
+        <button class="g-btn g-btn-pink" :disabled="!orderNumber" @click="forceComplete">强制出库</button>
       </div>
     </div>
 
-    <!-- 错误提示 -->
-    <p v-if="error" class="mb-3 text-sm text-red-500">{{ error }}</p>
-
-    <!-- 进度条 -->
-    <div v-if="orderNumber" class="mb-4 flex items-center gap-3">
-      <span class="text-sm text-gray-500">订单: <span class="font-mono">{{ orderNumber }}</span></span>
-      <span class="text-sm font-bold" :class="completed ? 'text-green-600' : 'text-orange-500'">
-        {{ totalScanned }} / {{ totalRequired }}
-      </span>
-    </div>
-
-    <!-- SKU 表 -->
+    <!-- 表格 -->
     <div class="g-card overflow-hidden">
       <table class="g-table">
         <thead>
           <tr>
             <th>SKU</th>
             <th>中文名</th>
-            <th>Barcode</th>
-            <th>Barcode2</th>
+            <th>barcode</th>
+            <th>barcode2</th>
             <th class="text-center">订单数量</th>
             <th class="text-center">出库数量</th>
           </tr>
@@ -179,21 +151,20 @@ async function forceComplete() {
               扫描订单号开始出库核验
             </td>
           </tr>
-          <tr
-            v-for="it in items"
-            :key="it.sku"
-            :class="it.scanned >= it.required ? 'bg-green-50' : ''"
-          >
-            <td class="font-mono">{{ it.sku }}</td>
+          <tr v-for="it in items" :key="it.sku">
+            <td class="font-mono font-semibold">{{ it.sku }}</td>
             <td>{{ it.name }}</td>
             <td class="font-mono text-xs text-gray-500">{{ it.barcode }}</td>
             <td class="font-mono text-xs text-gray-500">{{ it.barcode2 }}</td>
-            <td class="text-center">{{ it.required }}</td>
-            <td class="text-center">
-              <span :class="it.scanned >= it.required ? 'text-green-600 font-bold' : 'text-orange-500 font-bold'">
-                {{ it.scanned }}
-              </span>
+            <td class="text-center font-semibold">{{ it.required }}</td>
+            <td class="text-center font-bold" :class="it.scanned >= it.required ? 'text-green-600' : 'text-amber-600'">
+              {{ it.scanned }}
             </td>
+          </tr>
+          <tr v-if="orderNumber" class="bg-gray-50 font-bold">
+            <td colspan="4" class="text-right">合计</td>
+            <td class="text-center">{{ totalRequired }}</td>
+            <td class="text-center">{{ totalScanned }}</td>
           </tr>
         </tbody>
       </table>

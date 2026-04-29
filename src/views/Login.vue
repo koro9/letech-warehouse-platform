@@ -17,6 +17,12 @@ onMounted(async () => {
   inputEl.value?.focus()
 })
 
+// TODO(dev-only): 后端就绪后删除此函数 + 模板里的"免登入"按钮
+function devSkipLogin() {
+  auth.devLogin()
+  router.replace({ name: 'home' })
+}
+
 async function onSubmit() {
   if (!barcode.value.trim()) return
   loading.value = true
@@ -60,6 +66,15 @@ async function onSubmit() {
         </button>
         <p v-if="error" class="text-sm text-red-500 text-center">{{ error }}</p>
       </form>
+
+      <!-- TODO(dev-only): 后端 letech_warehouse_api 上线后整段删除 -->
+      <button
+        type="button"
+        class="w-full mt-3 py-2 text-xs text-amber-700 border border-dashed border-amber-300 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
+        @click="devSkipLogin"
+      >
+        🚧 免登入（开发用，正式上线移除）
+      </button>
 
       <p class="text-center text-xs text-gray-400 mt-6">
         v{{ '0.1.0' }} · 不知道编号？联系主管

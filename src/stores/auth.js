@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { warehouseAPI } from '@/utils/api'
+import { auth as authApi } from '@/api'
 
 /**
  * 鉴权 Store —— 员工胸牌扫码登录
@@ -19,7 +19,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value)
 
   async function login(barcode) {
-    const data = await warehouseAPI.login(barcode)
+    const data = await authApi.login(barcode)
     token.value = data.token
     employeeId.value = data.employee_id
     employeeName.value = data.employee_name
@@ -27,6 +27,16 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('employee_id', String(data.employee_id))
     localStorage.setItem('employee_name', data.employee_name)
     return data
+  }
+
+  // TODO(dev-only): 临时免登 — 后端 letech_warehouse_api 上线后删除此函数 + Login.vue 的"免登入"按钮
+  function devLogin() {
+    token.value = 'dev-token'
+    employeeId.value = 999
+    employeeName.value = 'Dev'
+    localStorage.setItem('warehouse_token', 'dev-token')
+    localStorage.setItem('employee_id', '999')
+    localStorage.setItem('employee_name', 'Dev')
   }
 
   function logout() {
@@ -38,5 +48,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('employee_name')
   }
 
-  return { token, employeeId, employeeName, isLoggedIn, login, logout }
+  return { token, employeeId, employeeName, isLoggedIn, login, logout, devLogin }
 })
