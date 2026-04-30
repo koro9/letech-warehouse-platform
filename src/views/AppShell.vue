@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { RouterView, RouterLink, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import Toast from '@/components/Toast.vue'
@@ -7,6 +7,52 @@ import Toast from '@/components/Toast.vue'
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+
+// ============================================================
+// 路由 chunk 预热
+// ============================================================
+//
+// 痛点：每个 view 都是 () => import()，第一次访问要现下载 chunk，肉眼可感的延迟。
+//
+// 策略：AppShell 挂载后等浏览器空闲，一次性把所有路由 chunk 拉到浏览器缓存里。
+//   后续切菜单全是缓存命中，瞬间渲染，配合 router 的 200ms loading 阈值
+//   → 首屏后切换零等待感。
+//
+// 代价：首屏后会多下 50-80 KB（gzip 后约 20-30 KB）的 view chunk。在 idle 时段
+//   进行，不阻塞主线程，用户无感。
+//
+// 选择直接列在这里而不是从 router.getRoutes() 反推，是因为：
+//   1. 显式列表更易审 —— 加了新页面记得加这里，不会忘
+//   2. router config 里 component 是 lazy 工厂，调用一次会触发实际 import，
+//      在 router init 阶段反推会重复触发
+//   3. 维护成本可控 —— 路由不常增减
+function prefetchViews() {
+  const schedule = window.requestIdleCallback || ((cb) => setTimeout(cb, 1500))
+
+  schedule(() => {
+    // 用 allSettled 把单个 chunk 加载失败吞掉 —— 后续真访问对应路由时
+    // 懒加载会自动重试，不影响主功能
+    Promise.allSettled([
+      // Dashboard
+      import('@/views/dashboard/Dashboard.vue'),
+      import('@/views/dashboard/Outbound.vue'),
+      import('@/views/dashboard/Shipping.vue'),
+      import('@/views/dashboard/Split.vue'),
+      import('@/views/dashboard/Labels.vue'),
+      import('@/views/dashboard/Orders.vue'),
+      import('@/views/dashboard/Inventory.vue'),
+      import('@/views/dashboard/Admin.vue'),
+      // Receiving
+      import('@/views/receiving/Counting.vue'),
+      import('@/views/receiving/Allocation.vue'),
+      import('@/views/receiving/Transfer.vue'),
+      // Query
+      import('@/views/query/SmartQuery.vue'),
+    ])
+  })
+}
+
+onMounted(prefetchViews)
 
 // 顶部业务系统 tab
 const systems = [
