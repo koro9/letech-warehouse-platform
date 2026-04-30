@@ -46,6 +46,40 @@ function makeRequestId() {
   })
 }
 
+// ============== 写操作自动 Loading 遮罩 ==============
+// 所有 POST/PUT/PATCH/DELETE 自动弹全局遮罩，加 300ms grace 避免快速请求闪一下
+// GET 不自动弹（通常页面已有内联 loading 反馈，自动弹会卡住用户输入下一个字段）
+// 多个并发写请求共用一个遮罩，全部完成后才隐藏
+const SHOW_DELAY_MS = 300
+let pendingWrites = 0
+let showTimer = null
+let interceptorShown = false
+
+function onWriteStart() {
+  pendingWrites++
+  if (pendingWrites === 1 && !showTimer && !interceptorShown) {
+    showTimer = setTimeout(() => {
+      useGlobalLoading().show()
+      interceptorShown = true
+      showTimer = null
+    }, SHOW_DELAY_MS)
+  }
+}
+
+function onWriteEnd() {
+  pendingWrites = Math.max(0, pendingWrites - 1)
+  if (pendingWrites === 0) {
+    if (showTimer) {
+      clearTimeout(showTimer)        // 还没到 300ms 就完成了 → 直接取消，不显示
+      showTimer = null
+    }
+    if (interceptorShown) {
+      useGlobalLoading().hide()
+      interceptorShown = false
+    }
+  }
+}
+
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('warehouse_token')
   if (token) {
@@ -57,12 +91,24 @@ http.interceptors.request.use((config) => {
   if (WRITE_METHODS.has(config.method?.toLowerCase()) && !config.headers['Idempotency-Key']) {
     config.headers['Idempotency-Key'] = makeRequestId()
   }
+
+  // 标记写操作（响应回来时按这个标记判断是否要 decrement）
+  // 调用方传 config.skipGlobalLoading = true 可单独跳过（如果某个 POST 不想弹遮罩）
+  if (WRITE_METHODS.has(config.method?.toLowerCase()) && !config.skipGlobalLoading) {
+    config.__loadingTracked = true
+    onWriteStart()
+  }
   return config
 })
 
 http.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    if (response.config?.__loadingTracked) onWriteEnd()
+    return response.data
+  },
   (error) => {
+    if (error.config?.__loadingTracked) onWriteEnd()
+
     const status = error.response?.status
 
     if (status === 401) {
@@ -74,6 +120,13 @@ http.interceptors.response.use(
       if (window.location.pathname !== loginPath) {
         window.location.href = loginPath
       }
+    }
+
+    if (status === 403 && error.response?.data?.error === 'access_denied') {
+      // Odoo 这边告诉我们当前用户（internal 自己 / parttime 共享 kiosk）权限不够
+      // 不是登录态问题，是 group 配置问题 — 让仓库主管去 Odoo 后台调权限
+      showToast('用戶權限不足，請聯絡 Odoo 管理員', 'error')
+      error.handledByInterceptor = true
     }
 
     if (status === 409) {

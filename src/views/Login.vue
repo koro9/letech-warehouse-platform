@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useGlobalLoading } from '@/composables/useGlobalLoading'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -23,11 +24,17 @@ async function onSubmit() {
   loading.value = true
   error.value = ''
   try {
-    await auth.loginByBadge(barcode.value.trim())
+    await useGlobalLoading().run(
+      () => auth.loginByBadge(barcode.value.trim()),
+      '登入中...',
+    )
     const redirect = route.query.redirect || { name: 'home' }
     router.replace(redirect)
   } catch (err) {
-    error.value = err.response?.data?.error || '员工编号无效，请联系主管'
+    // 401/403/409 已被 http.js 拦截器以 toast 显示了，本地不再重复提示
+    if (!err.handledByInterceptor) {
+      error.value = err.response?.data?.error || '员工编号无效，请联系主管'
+    }
     barcode.value = ''
     inputEl.value?.focus()
   } finally {
@@ -37,9 +44,9 @@ async function onSubmit() {
 
 // 内部 Odoo 用户：
 //   - 浏览器已有 Odoo cookie → 直接 claim 进系统
-//   - 没 cookie → loginByOdoo 内部跳到 Odoo /web/login
+//   - 没 cookie → loginByOdoo 内部跳到 Odoo /web/login（页面会卸载，遮罩自然消失）
 async function onOdooLogin() {
-  await auth.loginByOdoo()
+  await useGlobalLoading().run(() => auth.loginByOdoo(), '登入中...')
   if (auth.isLoggedIn) {
     const redirect = route.query.redirect || { name: 'home' }
     router.replace(redirect)

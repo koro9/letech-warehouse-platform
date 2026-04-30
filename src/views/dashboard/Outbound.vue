@@ -43,7 +43,7 @@ async function loadOrder() {
     skuInputEl.value?.focus()
   } catch (err) {
     if (!err.handledByInterceptor) {
-      showToast(err.response?.data?.error || '订单不存在或不可出库', 'error')
+      showToast(err.response?.data?.error || '訂單不存在或不可出庫', 'error')
     }
     items.value = []
   } finally {
@@ -83,7 +83,9 @@ async function scanSku() {
     })
     item.scanned += 1
   } catch (err) {
-    showToast(err.response?.data?.error || '扫码失败', 'error')
+    if (!err.handledByInterceptor) {
+      showToast(err.response?.data?.error || '掃碼失敗', 'error')
+    }
   } finally {
     skuInput.value = ''
     skuInputEl.value?.focus()
@@ -106,7 +108,9 @@ async function forceComplete() {
     showToast('已强制完成', 'success')
     reset()
   } catch (err) {
-    showToast(err.response?.data?.error || '操作失败', 'error')
+    if (!err.handledByInterceptor) {
+      showToast(err.response?.data?.error || '操作失敗', 'error')
+    }
   } finally {
     loading.value = false
   }

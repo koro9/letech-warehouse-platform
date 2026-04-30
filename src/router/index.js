@@ -45,7 +45,7 @@ const routes = [
       { path: 'receiving/alloc',    name: 'receiving-alloc',    component: () => import('@/views/receiving/Allocation.vue'), meta: { system: 'receiving' } },
       { path: 'receiving/transfer', name: 'receiving-transfer', component: () => import('@/views/receiving/Transfer.vue'),   meta: { system: 'receiving' } },
 
-      // ===== 智能查詢（DEAR 直连查询工具） =====
+      // ===== 智能查詢（直连 Odoo 庫存） =====
       { path: 'query', name: 'query-home', component: () => import('@/views/query/SmartQuery.vue'), meta: { system: 'query' } },
     ],
   },

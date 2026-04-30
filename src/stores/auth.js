@@ -44,12 +44,25 @@ export const useAuthStore = defineStore('auth', () => {
   const isInternal  = computed(() => type.value === 'internal')
   const isParttime  = computed(() => type.value === 'parttime')
 
+  // Promise 锁：多个并发导航同时调 bootstrap() 时，复用同一次 in-flight 请求
+  // 而不是各自打一遍 /whoami（避免竞态 + 浪费请求）
+  let bootstrapPromise = null
+
+  async function bootstrap() {
+    if (bootstrapPromise) return bootstrapPromise
+    bootstrapPromise = _doBootstrap().finally(() => {
+      // bootstrap 完成后清掉 promise（之后如再调一次会重新发请求 — 极少发生）
+      bootstrapPromise = null
+    })
+    return bootstrapPromise
+  }
+
   /**
    * 启动时 / 刷新时调用
    *   - 有"主动登出"标记 → 直接跳过 whoami，状态保持登出
    *   - 否则正常去后端 /whoami 拿身份（cookie 或 JWT 二选一识别）
    */
-  async function bootstrap() {
+  async function _doBootstrap() {
     if (localStorage.getItem(LS_LOGGED_OUT) === '1') {
       bootstrapped.value = true
       return

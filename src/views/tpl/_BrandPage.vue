@@ -8,6 +8,7 @@
  */
 import { ref } from 'vue'
 import { showToast } from '@/composables/useToast'
+import { useGlobalLoading } from '@/composables/useGlobalLoading'
 import { BRAND_PARSED, BRAND_PAGE_CONFIG } from './_data'
 
 const props = defineProps({
@@ -20,19 +21,23 @@ const fileInputEl = ref(null)
 const parsing = ref(false)
 const result = ref(null)
 
-function parsePDF() {
+async function parsePDF() {
   if (!fileInputEl.value?.files?.length) {
     showToast('⚠️ 請先上傳 PDF 檔案', 'warning')
     return
   }
   parsing.value = true
   result.value = null
-  // demo 这里是模拟 1.2 秒延迟，按 mock 数据返回
-  setTimeout(() => {
-    result.value = BRAND_PARSED[props.brand]
-    parsing.value = false
+  try {
+    await useGlobalLoading().run(async () => {
+      // demo 模拟 1.2 秒延迟；真后端就是真请求
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      result.value = BRAND_PARSED[props.brand]
+    }, '解析 PDF 中...')
     showToast(`✅ 解析完成！${result.value.parsed} 筆`, 'success')
-  }, 1200)
+  } finally {
+    parsing.value = false
+  }
 }
 
 function actLabel(act) {
