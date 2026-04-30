@@ -63,7 +63,7 @@ async function onOdooLogin() {
           v-model="barcode"
           type="text"
           class="g-input w-full text-center text-lg font-mono tracking-wider"
-          placeholder="EMP-XXXX"
+          placeholder="WMSXXXXXXXX"
           autocomplete="off"
           :disabled="loading"
         />

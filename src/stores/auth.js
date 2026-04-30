@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { auth as authApi } from '@/api'
+import { useGlobalLoading } from '@/composables/useGlobalLoading'
 
 /**
  * 鉴权 Store —— 区分两类用户
@@ -115,14 +116,25 @@ export const useAuthStore = defineStore('auth', () => {
    *   - parttime: best-effort 通知后端把 JWT 加 denylist
    *   - internal: 不动 Odoo session（用户可能 Odoo 和 Vue 用不同账号）
    *   - 设置 LS_LOGGED_OUT 标记让下次 bootstrap 不再 claim cookie
+   *
+   * 用全局 Loading 遮住整个登出过程，避免 resetState 后 AppShell 顶栏
+   * 的用户徽标短暂跳成空白再被 redirect 带走（之前的 UX 闪烁问题）
    */
   async function logout() {
-    if (isParttime.value) {
-      try { await authApi.logout() } catch { /* best-effort */ }
+    const loading = useGlobalLoading()
+    loading.show('登出中...')
+    try {
+      if (isParttime.value) {
+        try { await authApi.logout() } catch { /* best-effort */ }
+      }
+      resetState()
+      localStorage.setItem(LS_LOGGED_OUT, '1')
+      window.location.href = LOGIN_PATH
+      // 不 hide() — 浏览器要导航到 /login，遮罩留在原页面直到新页加载完
+    } catch (err) {
+      loading.hide()
+      throw err
     }
-    resetState()
-    localStorage.setItem(LS_LOGGED_OUT, '1')
-    window.location.href = LOGIN_PATH
   }
 
   /**

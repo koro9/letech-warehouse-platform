@@ -28,7 +28,6 @@ const routes = [
       { path: 'orders',     name: 'orders',    component: () => import('@/views/dashboard/Orders.vue'),    meta: { system: 'dashboard' } },
       { path: 'inventory',  name: 'inventory', component: () => import('@/views/dashboard/Inventory.vue'), meta: { system: 'dashboard' } },
       { path: 'recon',      name: 'recon',     component: () => import('@/views/dashboard/Recon.vue'),     meta: { system: 'dashboard' } },
-      { path: 'profile',    name: 'profile',   component: () => import('@/views/dashboard/Profile.vue'),   meta: { system: 'dashboard' } },
       // 用户管理只给内部用户（兼职员工不应能看），Odoo 那边角色定好后改成 'role:warehouse_admin'
       { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard', requires: 'type:internal' } },
 

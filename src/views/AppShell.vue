@@ -29,7 +29,6 @@ const sidebars = {
     { name: 'orders',    label: '订单',       icon: '📋' },
     { name: 'inventory', label: '库存对比',   icon: '📊' },
     { name: 'recon',     label: '对账',       icon: '✅' },
-    { name: 'profile',   label: '个人信息',   icon: '⚙️' },
     { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },
   ],
   tpl: [
@@ -103,7 +102,7 @@ function handleLogout() {
         <span v-else>🔖</span>
         <span>{{ auth.identity?.name || 'User' }}</span>
         <span class="opacity-60 text-[10px]">·</span>
-        <span class="opacity-80">{{ auth.isInternal ? 'Odoo' : '兼职' }}</span>
+        <span class="opacity-80">{{ auth.isInternal ? 'Odoo' : '倉庫' }}</span>
         <span class="opacity-70 ml-1">登出</span>
       </button>
     </header>

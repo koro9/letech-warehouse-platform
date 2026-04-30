@@ -1,6 +1,7 @@
 <script setup>
 import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import GlobalLoading from '@/components/GlobalLoading.vue'
 
 const auth = useAuthStore()
 </script>
@@ -14,4 +15,7 @@ const auth = useAuthStore()
     载入中…
   </div>
   <RouterView v-else />
+
+  <!-- 全局阻塞式 Loading，覆盖所有路由 / 业务调用 -->
+  <GlobalLoading />
 </template>

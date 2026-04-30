@@ -3,7 +3,8 @@ import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const greeting = computed(() => auth.employeeName || 'tommy.liu@letech.com.hk')
+// 之前用旧 API auth.employeeName（已废弃，重构后没人改这里），改成新的 identity.name
+const greeting = computed(() => auth.identity?.name || 'User')
 
 // KPI 数字 — 跟 demo 一比一硬编码（后续接 API 替换）
 const kpis = [

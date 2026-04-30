@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { showToast } from '@/composables/useToast'
 import { triggerCurrentRefresh } from '@/composables/usePageRefresh'
+import { useGlobalLoading } from '@/composables/useGlobalLoading'
 
 /**
  * Odoo 后端 axios 实例
