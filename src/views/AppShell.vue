@@ -26,7 +26,7 @@ const sidebars = {
     { name: 'shipping',  label: '面单',       icon: '🖨️' },
     { name: 'split',     label: '拆單',       icon: '✂️' },
     { name: 'labels',    label: '标签',       icon: '🏷️' },
-    { name: 'orders',    label: '订单',       icon: '📋' },
+    { name: 'orders',    label: '運單',       icon: '📋' },
     { name: 'inventory', label: '库存对比',   icon: '📊' },
     { name: 'recon',     label: '对账',       icon: '✅' },
     { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },

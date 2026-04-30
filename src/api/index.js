@@ -21,5 +21,6 @@ export * as auth from './auth'
 export * as outbound from './outbound'
 export * as shipping from './shipping'
 export * as inventory from './inventory'
+export * as orders from './orders'
 
 export { default as http } from './http'
