@@ -26,19 +26,10 @@ const routes = [
       { path: 'split',      name: 'split',     component: () => import('@/views/dashboard/Split.vue'),     meta: { system: 'dashboard' } },
       { path: 'labels',     name: 'labels',    component: () => import('@/views/dashboard/Labels.vue'),    meta: { system: 'dashboard' } },
       { path: 'orders',     name: 'orders',    component: () => import('@/views/dashboard/Orders.vue'),    meta: { system: 'dashboard' } },
+      // 库存对比暂时菜单隐藏；路由保留，未来想恢复直接放开侧边栏 nav 即可
       { path: 'inventory',  name: 'inventory', component: () => import('@/views/dashboard/Inventory.vue'), meta: { system: 'dashboard' } },
-      { path: 'recon',      name: 'recon',     component: () => import('@/views/dashboard/Recon.vue'),     meta: { system: 'dashboard' } },
       // 用户管理只给内部用户（兼职员工不应能看），Odoo 那边角色定好后改成 'role:warehouse_admin'
       { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard', requires: 'type:internal' } },
-
-      // ===== 3PL 倉庫平台 =====
-      { path: 'tpl',           name: 'tpl-home',      component: () => import('@/views/tpl/Home.vue'),      meta: { system: 'tpl' } },
-      { path: 'tpl/search',    name: 'tpl-search',    component: () => import('@/views/tpl/Search.vue'),    meta: { system: 'tpl' } },
-      { path: 'tpl/inspect',   name: 'tpl-inspect',   component: () => import('@/views/tpl/Inspect.vue'),   meta: { system: 'tpl' } },
-      { path: 'tpl/yummy',     name: 'tpl-yummy',     component: () => import('@/views/tpl/Yummy.vue'),     meta: { system: 'tpl' } },
-      { path: 'tpl/anymall',   name: 'tpl-anymall',   component: () => import('@/views/tpl/Anymall.vue'),   meta: { system: 'tpl' } },
-      { path: 'tpl/hellobear', name: 'tpl-hellobear', component: () => import('@/views/tpl/HelloBear.vue'), meta: { system: 'tpl' } },
-      { path: 'tpl/homey',     name: 'tpl-homey',     component: () => import('@/views/tpl/Homey.vue'),     meta: { system: 'tpl' } },
 
       // ===== PO 收貨平台 =====
       { path: 'receiving',          name: 'receiving-counting', component: () => import('@/views/receiving/Counting.vue'),   meta: { system: 'receiving' } },

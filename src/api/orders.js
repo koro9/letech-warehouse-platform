@@ -17,7 +17,7 @@ import http from './http'
  *     ?q=...                      ilike 运单号 / 订单号
  *     ?status=A,B,C               逗号分隔多选，匹配 hktv_raw_status in [...]
  *     ?outbound_stage=a,b         逗号分隔多选，匹配 fulfillment_stage in [...]
- *     ?page=1&page_size=50        page 从 1 起算
+ *     ?page=1&page_size=40        page 从 1 起算
  *
  *   200 →
  *     {

@@ -54,7 +54,7 @@ const rows = ref([])
 const loading = ref(false)
 
 // 分页状态
-const PAGE_SIZE = 50
+const PAGE_SIZE = 40
 const currentPage = ref(1)
 const total = ref(0)
 const totalPages = ref(0)

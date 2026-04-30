@@ -11,7 +11,6 @@ const route = useRoute()
 // 顶部业务系统 tab
 const systems = [
   { key: 'dashboard', label: '📊 Dashboard 系統', home: { name: 'home' } },
-  { key: 'tpl',       label: '🏭 3PL 倉庫平台',   home: { name: 'tpl-home' } },
   { key: 'receiving', label: '📦 PO 收貨平台',   home: { name: 'receiving-counting' } },
   { key: 'query',     label: '🔍 智能查詢',       home: { name: 'query-home' } },
 ]
@@ -27,18 +26,9 @@ const sidebars = {
     { name: 'split',     label: '拆單',       icon: '✂️' },
     { name: 'labels',    label: '标签',       icon: '🏷️' },
     { name: 'orders',    label: '運單',       icon: '📋' },
-    { name: 'inventory', label: '库存对比',   icon: '📊' },
-    { name: 'recon',     label: '对账',       icon: '✅' },
+    // 库存对比暂时隐藏（路由和组件保留，未来恢复时把这行解开即可）
+    // { name: 'inventory', label: '庫存對比',   icon: '📊' },
     { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },
-  ],
-  tpl: [
-    { name: 'tpl-home',      label: '系統首頁',       icon: '🏠' },
-    { name: 'tpl-search',    label: '智能查詢中心',   icon: '🔍' },
-    { name: 'tpl-inspect',   label: '3PL 貨品檢測',   icon: '📋' },
-    { name: 'tpl-yummy',     label: 'Yummy 3PL',      icon: '🍔' },
-    { name: 'tpl-anymall',   label: 'Anymall 3PL',    icon: '🛍️' },
-    { name: 'tpl-hellobear', label: 'Hello Bear 3PL', icon: '🐻' },
-    { name: 'tpl-homey',     label: 'Homey 3PL',      icon: '🏡' },
   ],
   receiving: [
     { name: 'receiving-counting', label: 'PO 點貨',        icon: '📦' },
@@ -113,7 +103,7 @@ function handleLogout() {
       <nav class="bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-y-auto pt-2"
            style="width: 200px;">
         <div class="text-[11px] font-bold text-gray-300 px-5 pt-4 pb-2 tracking-widest">
-          {{ currentSystem === 'tpl' ? '主選單' : currentSystem === 'receiving' ? 'PO 收貨' : currentSystem === 'query' ? '查詢工具' : 'MENU' }}
+          {{ currentSystem === 'receiving' ? 'PO 收貨' : currentSystem === 'query' ? '查詢工具' : 'MENU' }}
         </div>
         <template v-for="item in navItems" :key="item.name">
           <RouterLink
