@@ -69,10 +69,6 @@ const ident = computed(() => auth.identity || {})
           <dt class="text-xs sm:text-sm text-gray-400 sm:w-24 sm:flex-shrink-0 mb-0.5 sm:mb-0">User ID</dt>
           <dd class="text-gray-700 font-mono">{{ ident.user_id || '—' }}</dd>
         </div>
-        <div v-if="auth.isParttime" class="flex flex-col sm:flex-row sm:items-baseline">
-          <dt class="text-xs sm:text-sm text-gray-400 sm:w-24 sm:flex-shrink-0 mb-0.5 sm:mb-0">Operator ID</dt>
-          <dd class="text-gray-700 font-mono">{{ ident.operator_id || '—' }}</dd>
-        </div>
         <div class="flex flex-col sm:flex-row sm:items-baseline">
           <dt class="text-xs sm:text-sm text-gray-400 sm:w-24 sm:flex-shrink-0 mb-0.5 sm:mb-0">角色</dt>
           <dd class="text-gray-700">{{ ident.role || '—' }}</dd>

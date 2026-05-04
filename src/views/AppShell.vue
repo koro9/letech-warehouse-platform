@@ -67,7 +67,7 @@ const systems = [
 // requires: 权限 gate，传给 auth.canAccess —— 不满足时整个项隐藏
 const sidebars = {
   dashboard: [
-    { name: 'home',      label: '控制台',     icon: '🏠' },
+    { name: 'home',      label: '儀表板',     icon: '📊' },
     { name: 'outbound',  label: '出庫',       icon: '📤' },
     { name: 'shipping',  label: '面單',       icon: '🖨️' },
     { name: 'split',     label: '拆單',       icon: '✂️' },
