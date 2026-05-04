@@ -140,22 +140,36 @@ onActivated(() => {
 </script>
 
 <template>
-  <div class="p-10">
-    <div class="flex items-center gap-3 mb-4 flex-wrap">
-      <span class="text-sm text-gray-500">提貨日期</span>
-      <input v-model="dateFrom" type="date" class="g-input" style="width:160px;height:40px;" />
-      <span class="text-gray-400">~</span>
-      <input v-model="dateTo" type="date" class="g-input" style="width:160px;height:40px;" />
-      <input v-model="orderQuery" class="g-input" style="width:220px;height:40px;"
-             placeholder="運單號 / 訂單號" @keyup.enter="search" />
-      <button class="g-btn g-btn-teal" style="padding:8px 24px;height:40px;"
-              :disabled="loading" @click="search">
-        {{ loading ? '查詢中…' : '搜尋' }}
-      </button>
+  <div class="p-4 sm:p-6 lg:p-10">
+    <!-- 顶部筛选行：手机日期 + 关键字纵向，按钮整行；md+ 横向 -->
+    <div class="space-y-3 md:space-y-0 md:flex md:items-center md:gap-3 md:flex-wrap mb-3 md:mb-4">
+      <!-- 日期范围 -->
+      <div class="flex items-center gap-2 md:gap-3 flex-wrap">
+        <span class="text-sm text-gray-500 flex-shrink-0">提貨日期</span>
+        <input v-model="dateFrom" type="date" class="g-input flex-1 md:flex-none" style="width:auto;min-width:140px;max-width:180px;height:40px;" />
+        <span class="text-gray-400">~</span>
+        <input v-model="dateTo" type="date" class="g-input flex-1 md:flex-none" style="width:auto;min-width:140px;max-width:180px;height:40px;" />
+      </div>
+      <!-- 关键字 + 搜索 -->
+      <div class="flex items-center gap-2 md:gap-3">
+        <input
+          v-model="orderQuery"
+          class="g-input flex-1 md:flex-none"
+          style="width:100%;min-width:0;max-width:220px;height:40px;"
+          placeholder="運單號 / 訂單號"
+          autocomplete="off"
+          @keyup.enter="search"
+        />
+        <button class="g-btn g-btn-teal flex-shrink-0" style="padding:8px 24px;height:40px;"
+                :disabled="loading" @click="search">
+          {{ loading ? '查詢中…' : '搜尋' }}
+        </button>
+      </div>
     </div>
 
+    <!-- chip：运单状态 -->
     <div class="flex items-center gap-2 mb-3 flex-wrap">
-      <span class="text-sm text-gray-500 mr-1 w-16 inline-block">運單狀態</span>
+      <span class="text-xs sm:text-sm text-gray-500 mr-1 w-full sm:w-16 sm:inline-block">運單狀態</span>
       <button
         v-for="opt in STATUS_OPTIONS" :key="opt"
         type="button"
@@ -173,8 +187,9 @@ onActivated(() => {
       >清除</button>
     </div>
 
-    <div class="flex items-center gap-2 mb-6 flex-wrap">
-      <span class="text-sm text-gray-500 mr-1 w-16 inline-block">出庫狀態</span>
+    <!-- chip：出库状态 -->
+    <div class="flex items-center gap-2 mb-5 sm:mb-6 flex-wrap">
+      <span class="text-xs sm:text-sm text-gray-500 mr-1 w-full sm:w-16 sm:inline-block">出庫狀態</span>
       <button
         v-for="opt in OUTBOUND_STAGE_OPTIONS" :key="opt.value"
         type="button"
@@ -192,14 +207,15 @@ onActivated(() => {
       >清除</button>
     </div>
 
-    <div class="g-card overflow-hidden">
+    <!-- 桌面：表格视图 -->
+    <div class="hidden md:block g-card overflow-hidden">
       <table class="g-table">
         <thead>
           <tr>
             <th>運單號</th>
             <th>訂單號</th>
             <th>運單狀態</th>
-            <th>訂單日期</th>
+            <th class="hidden lg:table-cell">訂單日期</th>
             <th>提貨日期</th>
             <th>出庫</th>
             <th>面單</th>
@@ -207,7 +223,7 @@ onActivated(() => {
         </thead>
         <tbody>
           <tr v-if="!loading && rows.length === 0">
-            <td colspan="7" class="text-center text-gray-400 py-10">沒有符合條件的運單</td>
+            <td :colspan="7" class="text-center text-gray-400 py-10">沒有符合條件的運單</td>
           </tr>
           <tr v-for="o in rows" :key="o.id">
             <td class="font-semibold">{{ o.waybill || '—' }}</td>
@@ -217,7 +233,7 @@ onActivated(() => {
                 {{ o.status }}
               </span>
             </td>
-            <td class="text-xs text-gray-600">{{ o.order_date }}</td>
+            <td class="hidden lg:table-cell text-xs text-gray-600">{{ o.order_date }}</td>
             <td class="text-xs text-gray-600">{{ o.pickup_date }}</td>
             <td>
               <span v-if="o.outbound_stage" class="g-badge" :style="outboundStyle(o.outbound_stage)">
@@ -234,22 +250,61 @@ onActivated(() => {
       </table>
     </div>
 
+    <!-- 手机：卡片视图 -->
+    <div class="md:hidden">
+      <div v-if="!loading && rows.length === 0" class="g-card p-10 text-center text-gray-400 text-sm">
+        沒有符合條件的運單
+      </div>
+      <div v-else class="space-y-2">
+        <div v-for="o in rows" :key="o.id" class="g-card p-3">
+          <!-- 第一行：运单号 + 运单状态徽章 -->
+          <div class="flex items-start justify-between gap-2 mb-1.5">
+            <div class="font-semibold text-sm text-gray-800 flex-1 min-w-0 truncate">
+              {{ o.waybill || '—' }}
+            </div>
+            <span v-if="o.status" class="g-badge flex-shrink-0" style="background:#f0f9ff;color:#0369a1;">
+              {{ o.status }}
+            </span>
+          </div>
+          <!-- 订单号 -->
+          <div class="font-mono text-[11px] text-gray-500 mb-2 break-all">{{ o.order_no }}</div>
+          <!-- 日期网格 -->
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600 mb-2">
+            <div><span class="text-gray-400">訂單日期：</span>{{ o.order_date || '—' }}</div>
+            <div><span class="text-gray-400">提貨日期：</span>{{ o.pickup_date || '—' }}</div>
+          </div>
+          <!-- 状态徽章组 -->
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-[11px] text-gray-400">出庫</span>
+            <span v-if="o.outbound_stage" class="g-badge" :style="outboundStyle(o.outbound_stage)">
+              {{ o.outbound_label }}
+            </span>
+            <span v-else class="g-badge" style="background:#f3f4f6;color:#9ca3af;">—</span>
+            <span class="text-[11px] text-gray-400 ml-2">面單</span>
+            <span v-if="o.printed" class="g-badge" style="background:#ecfdf5;color:#047857;">已列印</span>
+            <span v-else class="g-badge" style="background:#f3f4f6;color:#9ca3af;">未列印</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 分页栏：第 X / Y 頁 · 共 Z 條 [上一頁] [下一頁] -->
-    <div v-if="total > 0" class="flex items-center justify-between mt-6 text-sm">
-      <div class="text-gray-500">
+    <!-- 手机：信息和按钮上下两行；md+ 同行 -->
+    <div v-if="total > 0" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-5 sm:mt-6 text-sm">
+      <div class="text-gray-500 text-center sm:text-left">
         第 <span class="text-gray-700 font-medium">{{ currentPage }}</span>
         / <span class="text-gray-700 font-medium">{{ totalPages }}</span> 頁
         <span class="mx-2 text-gray-300">·</span>
         共 <span class="text-gray-700 font-medium">{{ total }}</span> 條
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center justify-center gap-2">
         <button
-          class="px-3 py-1.5 rounded border border-gray-200 text-gray-600 hover:border-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
+          class="flex-1 sm:flex-none px-4 py-2 rounded border border-gray-200 text-gray-600 hover:border-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
           :disabled="!hasPrev || loading"
           @click="goToPage(currentPage - 1)"
         >上一頁</button>
         <button
-          class="px-3 py-1.5 rounded border border-gray-200 text-gray-600 hover:border-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
+          class="flex-1 sm:flex-none px-4 py-2 rounded border border-gray-200 text-gray-600 hover:border-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
           :disabled="!hasNext || loading"
           @click="goToPage(currentPage + 1)"
         >下一頁</button>

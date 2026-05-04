@@ -615,8 +615,8 @@ function isCutTr(id) { return /^TR-\d+-\d+$/.test(id) }
       </div>
     </div>
 
-    <!-- 底部操作 -->
-    <div class="flex-shrink-0 bg-white border-t border-gray-200 px-5 py-4 flex flex-col gap-3">
+    <!-- 底部操作 — safe-pb 让 iOS home indicator 不挡按钮 -->
+    <div class="flex-shrink-0 bg-white border-t border-gray-200 px-4 sm:px-5 py-4 flex flex-col gap-3 safe-pb">
       <button
         class="w-full py-3.5 rounded-2xl font-bold text-[15px] cursor-pointer flex items-center justify-center gap-2"
         style="border:2px solid #fbbf24;background:linear-gradient(90deg,#fffbeb,#fff7ed);color:#b45309;"
@@ -733,7 +733,8 @@ function isCutTr(id) { return /^TR-\d+-\d+$/.test(id) }
       </div>
     </div>
 
-    <div class="flex-shrink-0 flex border-t border-gray-200 bg-white">
+    <!-- 底部操作 — safe-pb 适配 iOS home indicator -->
+    <div class="flex-shrink-0 flex border-t border-gray-200 bg-white safe-pb">
       <button class="flex-1 py-4 bg-slate-50 border-0 text-slate-500 font-bold text-[15px] cursor-pointer" @click="goBack">取消</button>
       <button class="flex-1 py-4 text-white border-0 font-bold text-[15px] cursor-pointer" style="background:linear-gradient(90deg,#4f46e5,#7c3aed);" @click="saveItem">確認儲存</button>
     </div>

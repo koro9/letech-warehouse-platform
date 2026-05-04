@@ -29,7 +29,9 @@ const routes = [
       { path: 'orders',     name: 'orders',    component: () => import('@/views/dashboard/Orders.vue'),    meta: { system: 'dashboard' } },
       // 库存对比暂时菜单隐藏；路由保留，未来想恢复直接放开侧边栏 nav 即可
       { path: 'inventory',  name: 'inventory', component: () => import('@/views/dashboard/Inventory.vue'), meta: { system: 'dashboard' } },
-      // 用户管理只给内部用户（兼职员工不应能看），Odoo 那边角色定好后改成 'role:warehouse_admin'
+      // 个人信息（只读展示当前登入身份）— 取代了原来的 admin 菜单位置
+      { path: 'profile',    name: 'profile',   component: () => import('@/views/dashboard/Profile.vue'),   meta: { system: 'dashboard' } },
+      // 用户管理 Admin 已菜单隐藏（迁移到 Odoo 后台维护），路由保留
       { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard', requires: 'type:internal' } },
 
       // ===== PO 收貨平台 =====

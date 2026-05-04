@@ -187,14 +187,14 @@ function rowIndex(row) { return rows.indexOf(row) }
 
 <template>
   <!-- ===== 入口 ===== -->
-  <div v-if="!entered" class="m3b-entry h-full">
+  <div v-if="!entered" class="m3b-entry h-full p-4">
     <div class="bg-white rounded-2xl shadow-lg border border-gray-200 w-full max-w-sm overflow-hidden">
-      <div class="px-8 pt-8 pb-5 text-center">
-        <div class="text-5xl mb-3">📦</div>
-        <h1 class="text-xl font-bold">收貨分配系統</h1>
+      <div class="px-6 sm:px-8 pt-6 sm:pt-8 pb-5 text-center">
+        <div class="text-4xl sm:text-5xl mb-3">📦</div>
+        <h1 class="text-lg sm:text-xl font-bold">收貨分配系統</h1>
         <p class="text-xs text-slate-400 mt-1">Receiving &amp; Distribution</p>
       </div>
-      <div class="px-8 pb-8">
+      <div class="px-6 sm:px-8 pb-6 sm:pb-8">
         <label class="block text-xs font-semibold text-slate-500 mb-1.5">PO Number</label>
         <input
           v-model="poInput"
@@ -202,6 +202,8 @@ function rowIndex(row) { return rows.indexOf(row) }
           class="g-input w-full text-center font-semibold font-mono mb-3"
           style="font-size:16px;"
           placeholder="請輸入 PO Number"
+          autocomplete="off"
+          inputmode="numeric"
         />
         <button class="g-btn g-btn-blue w-full" style="padding:12px;" @click="enterPO">進入</button>
         <p class="text-center text-xs text-gray-300 mt-4">Demo — 輸入 12345</p>
@@ -210,31 +212,39 @@ function rowIndex(row) { return rows.indexOf(row) }
   </div>
 
   <!-- ===== 主表 ===== -->
+  <!-- 注意：本页面表格 13+ 列宽，本质上是平板 / 桌面用的录入界面。
+       手机能用但建议横屏（横向滚动可读） -->
   <div v-else class="m3b flex flex-col h-full overflow-hidden">
-    <!-- 顶部栏 -->
-    <div class="bg-white border-b border-gray-200 px-5 py-3.5 flex-shrink-0">
+    <!-- 顶部栏：flex-wrap 自动让搜索框 + 操作按钮在窄屏换行 -->
+    <div class="bg-white border-b border-gray-200 px-3 sm:px-5 py-3 sm:py-3.5 flex-shrink-0">
       <div class="flex items-center justify-between flex-wrap gap-2.5">
-        <div class="flex items-center gap-2.5">
-          <button class="bg-transparent border-0 cursor-pointer text-slate-400 text-lg" @click="backToEntry">‹</button>
-          <h1 class="text-base font-bold">收貨分配</h1>
-          <span class="text-[11px] font-bold py-0.5 px-2.5 rounded-md" style="background:#dbeafe;color:#1d4ed8;">PO: {{ currentPO }}</span>
-          <span class="text-xs text-slate-400">共 {{ rows.length }} 項</span>
+        <!-- 左侧：返回 + 标题 + PO + 项数 -->
+        <div class="flex items-center gap-2 sm:gap-2.5 flex-wrap min-w-0">
+          <button class="bg-transparent border-0 cursor-pointer text-slate-400 text-xl flex-shrink-0" @click="backToEntry" aria-label="返回">‹</button>
+          <h1 class="text-sm sm:text-base font-bold">收貨分配</h1>
+          <span class="text-[11px] font-bold py-0.5 px-2 sm:px-2.5 rounded-md whitespace-nowrap" style="background:#dbeafe;color:#1d4ed8;">PO: {{ currentPO }}</span>
+          <span class="text-xs text-slate-400 whitespace-nowrap">共 {{ rows.length }} 項</span>
         </div>
-        <div class="flex items-center gap-2">
+        <!-- 右侧：搜索 + 操作 — 移动端搜索 flex-1 占满；按钮 emoji 简化 -->
+        <div class="flex items-center gap-2 w-full sm:w-auto">
           <input
             v-model="search"
-            class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg outline-none w-52"
+            class="flex-1 min-w-0 sm:flex-none sm:w-52 px-3 py-1.5 text-xs border border-gray-300 rounded-lg outline-none"
             placeholder="搜尋 SKU / 名稱"
           />
           <RefreshButton :on-refresh="refreshNow" />
-          <button class="bg-emerald-600 text-white text-xs font-semibold px-4 py-1.5 rounded-lg border-0 cursor-pointer" @click="exportExcel">⬇ 匯出</button>
-          <button class="bg-blue-600 text-white text-xs font-semibold px-4 py-1.5 rounded-lg border-0 cursor-pointer" @click="saveData">💾 儲存</button>
+          <button class="bg-emerald-600 text-white text-xs font-semibold px-3 sm:px-4 py-1.5 rounded-lg border-0 cursor-pointer flex-shrink-0" @click="exportExcel">
+            <span class="sm:hidden">⬇</span><span class="hidden sm:inline">⬇ 匯出</span>
+          </button>
+          <button class="bg-blue-600 text-white text-xs font-semibold px-3 sm:px-4 py-1.5 rounded-lg border-0 cursor-pointer flex-shrink-0" @click="saveData">
+            <span class="sm:hidden">💾</span><span class="hidden sm:inline">💾 儲存</span>
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- 表格 -->
-    <div class="flex-1 overflow-auto p-4">
+    <!-- 表格 — 始终横向滚动；max-height 给底部 footer 留位 -->
+    <div class="flex-1 overflow-auto p-3 sm:p-4">
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="overflow-auto" style="max-height: calc(100vh - 220px);">
           <table class="w-full text-left text-xs border-collapse">

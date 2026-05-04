@@ -292,9 +292,10 @@ function allocRemaining(it, alloc) {
 
 <template>
   <!-- ===== 状态 1：PO 输入 ===== -->
-  <div v-if="!curPO" class="m3a flex flex-col justify-center items-center h-full p-10">
-    <div class="text-5xl mb-3">📦</div>
-    <h2 class="text-xl font-extrabold mb-6">PO 點貨系統</h2>
+  <!-- 这套页面（M3a/M3c）是给收货员手机/平板用的；在 PC 上用 max-w 限宽避免拉得太空旷 -->
+  <div v-if="!curPO" class="m3a flex flex-col justify-center items-center h-full p-6 sm:p-10">
+    <div class="text-4xl sm:text-5xl mb-3">📦</div>
+    <h2 class="text-lg sm:text-xl font-extrabold mb-5 sm:mb-6">PO 點貨系統</h2>
     <div class="w-full max-w-sm">
       <input
         v-model="poInput"
@@ -302,6 +303,8 @@ function allocRemaining(it, alloc) {
         class="g-input w-full mb-3 text-center font-bold"
         style="font-size:18px;"
         placeholder="PO Number"
+        autocomplete="off"
+        inputmode="numeric"
       />
       <button class="g-btn g-btn-teal w-full" style="padding:14px;" @click="loadPO">
         載入 PO
@@ -311,7 +314,7 @@ function allocRemaining(it, alloc) {
   </div>
 
   <!-- ===== 状态 2：SKU 清单 ===== -->
-  <div v-else-if="!curSKU" class="m3a p-4 overflow-y-auto h-full">
+  <div v-else-if="!curSKU" class="m3a p-4 sm:p-5 overflow-y-auto h-full max-w-2xl mx-auto">
     <div class="hdr">
       <button class="hdr-back" @click="backToPO">‹</button>
       <h1>SKU 清單</h1>
@@ -375,7 +378,7 @@ function allocRemaining(it, alloc) {
   </div>
 
   <!-- ===== 状态 3：SKU 详情 ===== -->
-  <div v-else class="m3a p-4 overflow-y-auto h-full relative">
+  <div v-else class="m3a p-4 sm:p-5 overflow-y-auto h-full relative max-w-2xl mx-auto">
     <div class="hdr">
       <button class="hdr-back" @click="backToList">‹</button>
       <h1>{{ curItem.name }}</h1>
@@ -600,8 +603,8 @@ function allocRemaining(it, alloc) {
 
     <div class="h-18"></div>
 
-    <!-- 保存 sticky -->
-    <div class="m3a-bot">
+    <!-- 保存 sticky — safe-pb 让按钮在 iOS 全面屏不被 home indicator 遮 -->
+    <div class="m3a-bot safe-pb">
       <button class="g-btn g-btn-teal w-full" style="padding:14px;" @click="saveDetail">💾 儲存</button>
     </div>
 

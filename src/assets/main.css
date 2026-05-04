@@ -9,6 +9,13 @@
     overflow: hidden;
     -webkit-tap-highlight-color: transparent;
   }
+  /* 移动端：iOS 输入框 16px 以下会触发自动缩放，统一 16px 防抖 */
+  input, select, textarea { font-size: 16px; }
+  /* 但保留 .g-input 的视觉小一号 — PC 上不需要 16px 那么大 */
+  @media (min-width: 768px) {
+    input, select, textarea { font-size: 14px; }
+  }
+
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button {
     -webkit-appearance: none;
@@ -19,7 +26,24 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+  /* 触摸目标最小 44x44 (Apple HIG)；移动端任何 button / a 默认满足 */
+  @media (max-width: 767px) {
+    button, [role="button"], a.sb-nav, .sys-tab {
+      min-height: 44px;
+    }
+  }
+
+  /* iOS 全面屏安全区：内容不被刘海/底部 home bar 遮挡 */
+  /* 由具体页面/容器选择性使用 .safe-area-inset-* utility */
 }
+
+/* === 安全区 utility（iOS notch / home indicator） === */
+.safe-pt { padding-top: env(safe-area-inset-top); }
+.safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+.safe-pl { padding-left: env(safe-area-inset-left); }
+.safe-pr { padding-right: env(safe-area-inset-right); }
+.safe-px { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
 /* === Demo 通用组件（精确复刻 demo 的 .g-* 视觉） === */
 @layer components {

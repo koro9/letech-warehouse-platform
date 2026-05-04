@@ -114,19 +114,19 @@ function fmtQty(n) {
 </script>
 
 <template>
-  <div class="max-w-5xl mx-auto px-5 py-10">
+  <div class="max-w-5xl mx-auto px-4 sm:px-5 py-6 sm:py-10">
     <!-- 顶部 -->
-    <div class="text-center mb-8">
-      <h2 class="text-3xl font-extrabold text-slate-900">🔍 智能查詢中心</h2>
-      <p class="text-slate-500 text-base mt-2">直連 Odoo 庫存</p>
+    <div class="text-center mb-6 sm:mb-8">
+      <h2 class="text-xl sm:text-2xl lg:text-3xl font-extrabold text-slate-900">🔍 智能查詢中心</h2>
+      <p class="text-slate-500 text-sm sm:text-base mt-2">直連 Odoo 庫存</p>
     </div>
 
-    <div class="flex flex-col gap-9">
+    <div class="flex flex-col gap-6 sm:gap-9">
       <!-- 商品搜索 -->
-      <div class="g-card p-6">
-        <div class="flex items-center gap-3 mb-5">
-          <div class="bg-blue-50 p-2.5 rounded-xl flex items-center justify-center text-xl">📚</div>
-          <h3 class="text-slate-800 text-xl font-bold">商品搜尋</h3>
+      <div class="g-card p-4 sm:p-6">
+        <div class="flex items-center gap-3 mb-4 sm:mb-5">
+          <div class="bg-blue-50 p-2 sm:p-2.5 rounded-xl flex items-center justify-center text-lg sm:text-xl">📚</div>
+          <h3 class="text-slate-800 text-base sm:text-xl font-bold">商品搜尋</h3>
         </div>
 
         <form class="flex gap-3 flex-wrap mb-5" @submit.prevent="doSearch">
@@ -204,10 +204,10 @@ function fmtQty(n) {
       </div>
 
       <!-- Odoo 即時庫存查詢 -->
-      <div class="g-card p-6">
-        <div class="flex items-center gap-3 mb-5">
-          <div class="bg-emerald-50 p-2.5 rounded-xl flex items-center justify-center text-xl">📦</div>
-          <h3 class="text-emerald-900 text-xl font-bold">Odoo 即時庫存查詢</h3>
+      <div class="g-card p-4 sm:p-6">
+        <div class="flex items-center gap-3 mb-4 sm:mb-5">
+          <div class="bg-emerald-50 p-2 sm:p-2.5 rounded-xl flex items-center justify-center text-lg sm:text-xl">📦</div>
+          <h3 class="text-emerald-900 text-base sm:text-xl font-bold">Odoo 即時庫存查詢</h3>
         </div>
 
         <form class="flex gap-3 flex-wrap mb-5" @submit.prevent="doInventory">
@@ -263,20 +263,21 @@ function fmtQty(n) {
           </div>
 
           <!-- 总览 — 跟 Inventory > Inventory Health > All Products 列定义对齐 -->
+          <!-- 手机字号缩小、padding 减半，保持 3 列 -->
           <div class="rounded-2xl border border-slate-200 overflow-hidden mb-5 shadow-sm">
             <div class="grid grid-cols-3">
-              <div class="p-5 text-center border-r border-slate-200">
-                <div class="text-[11px] text-slate-500 font-bold mb-1">On Hand 總庫存</div>
-                <div class="text-2xl font-black text-slate-700">{{ fmtQty(invResult.summary.on_hand) }}</div>
+              <div class="p-3 sm:p-5 text-center border-r border-slate-200">
+                <div class="text-[10px] sm:text-[11px] text-slate-500 font-bold mb-1 leading-tight">On Hand<br class="sm:hidden"/><span class="sm:ml-1">總庫存</span></div>
+                <div class="text-lg sm:text-2xl font-black text-slate-700">{{ fmtQty(invResult.summary.on_hand) }}</div>
               </div>
-              <div class="p-5 text-center border-r border-slate-200">
-                <div class="text-[11px] text-slate-500 font-bold mb-1">Allocated 已分配</div>
-                <div class="text-2xl font-black text-amber-600">{{ fmtQty(invResult.summary.allocated) }}</div>
+              <div class="p-3 sm:p-5 text-center border-r border-slate-200">
+                <div class="text-[10px] sm:text-[11px] text-slate-500 font-bold mb-1 leading-tight">Allocated<br class="sm:hidden"/><span class="sm:ml-1">已分配</span></div>
+                <div class="text-lg sm:text-2xl font-black text-amber-600">{{ fmtQty(invResult.summary.allocated) }}</div>
               </div>
-              <div class="p-5 text-center">
-                <div class="text-[11px] text-slate-500 font-bold mb-1">Available 可用</div>
+              <div class="p-3 sm:p-5 text-center">
+                <div class="text-[10px] sm:text-[11px] text-slate-500 font-bold mb-1 leading-tight">Available<br class="sm:hidden"/><span class="sm:ml-1">可用</span></div>
                 <div
-                  class="text-2xl font-black"
+                  class="text-lg sm:text-2xl font-black"
                   :class="invResult.summary.available > 0 ? 'text-emerald-600' : 'text-red-600'"
                 >{{ fmtQty(invResult.summary.available) }}</div>
               </div>
