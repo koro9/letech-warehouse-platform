@@ -8,7 +8,7 @@
  *
  * 数据 schema（保持跟原页面一致，未来 Odoo 端按这个结构出 JSON）：
  *   {
- *     today:    { date, CONFIRMED, ACKNOWLEDGED, PICKED, TOTAL_TARGET, CANCELED },
+ *     today:    { date, CONFIRMED, ACKNOWLEDGED, PICKED, TOTAL_TARGET },
  *     tomorrow: { 同上 },
  *     last_updated: 'YYYY-MM-DD HH:MM:SS',
  *     status_msg: string
@@ -16,7 +16,9 @@
  *
  * 当前所有交互函数都是 stub —— 等后端就绪再接：
  *   - fetchOrderData()  → GET /api/warehouse/dashboard/hktv
- *   - submitCancel()    → POST /api/warehouse/dashboard/hktv/cancel { day, qty }
+ *
+ * 注：原 demo 还有"已取消"KPI + "手動紀錄取消訂單"输入区，现已下线
+ *     （业务暂不需要这两块）。CANCELED 字段在 mock data 里也一并删了。
  */
 import { ref, computed, onActivated } from 'vue'
 import { useAuthStore } from '@/stores/auth'
@@ -30,7 +32,6 @@ const greeting = computed(() => auth.identity?.name || 'User')
 // ============================================================
 const data = ref(null)              // null = 未取过；{} = 取过但空；{today,...} = 有数据
 const isRefreshing = ref(false)
-const cancelInputs = ref({ today: '', tomorrow: '' })
 
 // 两个分组卡片用 v-for 渲染，避免 today / tomorrow 模板重复
 const SECTIONS = [
@@ -46,7 +47,6 @@ const MOCK_DATA = {
     ACKNOWLEDGED: '0',
     PICKED: '52',
     TOTAL_TARGET: '52',
-    CANCELED: '0',
   },
   tomorrow: {
     date: '2026-05-05',
@@ -54,7 +54,6 @@ const MOCK_DATA = {
     ACKNOWLEDGED: '800',
     PICKED: '61',
     TOTAL_TARGET: '861',
-    CANCELED: '0',
   },
   last_updated: '2026-05-04 10:52:47',
   status_msg: '⚡ 最新狀態：自動背景更新成功！',
@@ -78,25 +77,6 @@ async function fetchOrderData() {
     }
   } finally {
     isRefreshing.value = false
-  }
-}
-
-async function submitCancel(dayKey) {
-  const qty = parseInt(cancelInputs.value[dayKey] || 0, 10)
-  if (qty <= 0) return
-  try {
-    // TODO: 接 Odoo - POST /api/warehouse/dashboard/hktv/cancel { day, qty }
-    // 现在直接本地累加 + 给 toast
-    if (data.value && data.value[dayKey]) {
-      const current = parseInt(data.value[dayKey].CANCELED || '0', 10)
-      data.value[dayKey].CANCELED = String(current + qty)
-    }
-    cancelInputs.value[dayKey] = ''
-    showToast(`✅ 已記錄 ${qty} 筆取消訂單`, 'success')
-  } catch (err) {
-    if (!err.handledByInterceptor) {
-      showToast(err.response?.data?.error || '更新失敗', 'error')
-    }
   }
 }
 
@@ -163,8 +143,8 @@ function hasDay(day) {
             <span class="text-sm text-slate-500 font-normal">📅 {{ data[sec.key].date || '--' }}</span>
           </h3>
 
-          <!-- 4 张 KPI 卡片 -->
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5 sm:mb-7">
+          <!-- 3 张 KPI 卡片 -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-5 sm:mb-7">
             <div class="bg-slate-50 p-4 sm:p-5 rounded-2xl text-center border border-slate-200">
               <div class="text-slate-500 text-xs sm:text-sm font-bold mb-2">📝 已建立</div>
               <div class="text-2xl sm:text-3xl text-slate-900 font-black leading-none">{{ data[sec.key].CONFIRMED || '--' }}</div>
@@ -179,14 +159,10 @@ function hasDay(day) {
                 {{ data[sec.key].PICKED || '0' }} / {{ data[sec.key].TOTAL_TARGET || '0' }}
               </div>
             </div>
-            <div class="bg-red-50 p-4 sm:p-5 rounded-2xl text-center border border-red-200">
-              <div class="text-red-500 text-xs sm:text-sm font-bold mb-2">❌ 已取消</div>
-              <div class="text-2xl sm:text-3xl text-red-700 font-black leading-none">{{ data[sec.key].CANCELED || '0' }}</div>
-            </div>
           </div>
 
           <!-- 出货进度条 -->
-          <div class="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200 mb-5">
+          <div class="bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200">
             <div class="flex justify-between text-sm sm:text-base font-bold text-slate-700 mb-3">
               <span>📦 出貨進度</span>
               <span :class="pickedPctOf(data[sec.key]) === 100 ? 'text-emerald-500' : 'text-slate-700'">
@@ -200,27 +176,6 @@ function hasDay(day) {
               ></div>
             </div>
           </div>
-
-          <!-- 手动记录取消 — 折叠 -->
-          <details class="bg-white p-3 sm:p-5 rounded-2xl border border-dashed border-slate-300">
-            <summary class="text-sm sm:text-base font-bold text-slate-900 outline-none select-none list-none flex items-center gap-2 cursor-pointer">
-              <span>⚙️ 手動紀錄取消訂單</span>
-              <span class="text-xs sm:text-[13px] text-blue-500 font-normal">(點擊展開 ▼)</span>
-            </summary>
-            <div class="mt-4 pt-4 border-t border-slate-100">
-              <div class="flex gap-3 flex-wrap">
-                <input
-                  v-model="cancelInputs[sec.key]"
-                  type="number" min="1" step="1" placeholder="請輸入數量…"
-                  class="px-4 py-3 rounded-xl border-2 border-slate-300 outline-none w-full sm:w-40 text-base"
-                />
-                <button
-                  class="bg-slate-900 text-white border-0 px-6 py-3 rounded-xl text-sm sm:text-base font-bold cursor-pointer flex-shrink-0 hover:bg-slate-800 transition-colors"
-                  @click="submitCancel(sec.key)"
-                >📝 記錄取消</button>
-              </div>
-            </div>
-          </details>
         </div>
       </template>
 
@@ -233,8 +188,3 @@ function hasDay(day) {
   </div>
 </template>
 
-<style scoped>
-/* 干掉 details > summary 的默认三角箭头（Safari/Firefox） */
-details > summary::-webkit-details-marker { display: none; }
-details > summary { list-style: none; }
-</style>
