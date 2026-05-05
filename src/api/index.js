@@ -22,5 +22,6 @@ export * as outbound from './outbound'
 export * as shipping from './shipping'
 export * as inventory from './inventory'
 export * as orders from './orders'
+export * as labels from './labels'
 
 export { default as http } from './http'
