@@ -60,6 +60,12 @@ const historyTotalPages = ref(0)
 const hasPrev = computed(() => historyPage.value > 1)
 const hasNext = computed(() => historyPage.value < historyTotalPages.value)
 
+// 历史板块过滤
+//   historyDateFilter   日历搜索 — 出库日期精确匹配；空字符串 = 不过滤
+//   historyUnprintedOnly  按钮 — 只看未列印（download_count=0 + 排除占位）
+const historyDateFilter = ref('')
+const historyUnprintedOnly = ref(false)
+
 // 生成锁状态（来自后端 / 全用户共享）
 // is_running=true 时所有用户的对应按钮都 disable
 const generateStatus = ref({
@@ -85,6 +91,13 @@ async function fetchScope(scope, page = 1) {
   if (scope === 'all') {
     params.page = page
     params.page_size = PAGE_SIZE
+    // 历史板块过滤：仅 scope=all 才传，today/tomorrow 不需要
+    if (historyDateFilter.value) {
+      params.outbound_date = historyDateFilter.value
+    }
+    if (historyUnprintedOnly.value) {
+      params.only_unprinted = 1
+    }
   }
   return shipping.listLabels(params)
 }
@@ -120,18 +133,24 @@ async function loadAll() {
   }
 }
 
+// 翻页（带边界保护）— 用户点上一页/下一页时调
 async function loadHistoryPage(p) {
   if (p < 1 || p > historyTotalPages.value || p === historyPage.value) return
   historyPage.value = p
+  await reloadHistory()
+}
+
+// 重新加载历史板块（不带边界保护）— 用户改筛选条件时调
+async function reloadHistory() {
   try {
-    const all = await fetchScope('all', p)
+    const all = await fetchScope('all', historyPage.value)
     historyLabels.value = all.labels || []
     historyTotal.value = all.total || 0
     historyTotalPages.value = all.total_pages || 0
     if (all.page) historyPage.value = all.page
   } catch (err) {
     if (!err.handledByInterceptor) {
-      showToast(err.response?.data?.error || '翻頁失敗', 'error')
+      showToast(err.response?.data?.error || '載入失敗', 'error')
     }
   }
 }
@@ -247,6 +266,12 @@ watch(autoRefresh, (val) => {
   else stopPolling()
 })
 
+// 历史板块过滤变化 → 重置到第 1 页 + 只重新拉历史（today/tomorrow 不受影响）
+watch([historyDateFilter, historyUnprintedOnly], () => {
+  historyPage.value = 1
+  reloadHistory()
+})
+
 // ============================================================
 // 进入页面 / KeepAlive 切回 → 拉数据 + 启动轮询
 // ============================================================
@@ -303,8 +328,18 @@ function isUrgent(r) {
       </div>
     </div>
 
-    <!-- ========== 上半：今日 + 明日 ========== -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-8 sm:mb-10">
+    <!-- ========== 上半：待出庫面單（今日 + 明日） ========== -->
+    <section class="mb-10 sm:mb-12">
+      <!-- 板块大标题 + 简短说明 -->
+      <div class="flex items-center justify-between mb-4 sm:mb-5 flex-wrap gap-2 pb-3 border-b border-gray-200">
+        <div class="flex items-center gap-2">
+          <span class="text-xl sm:text-2xl">📦</span>
+          <h2 class="text-base sm:text-lg font-bold text-gray-800">待出庫面單</h2>
+          <span class="hidden sm:inline text-xs text-gray-400 ml-2">點擊「⚡ 今日 / ⚡ 明日」按鈕生成</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
       <section v-for="sec in SECTIONS" :key="sec.key">
         <!-- 板块顶部按钮 — 点击触发生成 -->
         <div class="flex items-center gap-3 mb-4 sm:mb-5">
@@ -348,9 +383,9 @@ function isUrgent(r) {
                 v-for="r in sectionLabels[sec.key]" :key="r.id"
                 :class="!r.has_attachment ? 'bg-gray-50' : ''"
               >
-                <!-- 占位 label：整行灰底 + 文字灰；正常 label：display_name -->
-                <td class="text-xs" :class="r.has_attachment ? '' : 'text-gray-400'">
-                  <span v-if="r.has_attachment">{{ r.display_name || r.file_name }}</span>
+                <!-- 占位 label：整行灰底 + 文字灰；正常 label：真实 PDF 文件名 -->
+                <td class="text-xs" :class="r.has_attachment ? 'font-mono' : 'text-gray-400'">
+                  <span v-if="r.has_attachment">{{ r.file_name }}</span>
                   <span v-else>📭 暫無資料</span>
                 </td>
                 <td class="text-center" :class="r.has_attachment ? 'font-semibold' : 'text-gray-400'">
@@ -390,8 +425,8 @@ function isUrgent(r) {
             >
               <div class="flex items-start justify-between gap-3 mb-2">
                 <div class="flex-1 min-w-0">
-                  <div class="text-xs break-all" :class="r.has_attachment ? 'text-gray-700 font-semibold' : 'text-gray-400'">
-                    {{ r.has_attachment ? (r.display_name || r.file_name) : '📭 暫無資料' }}
+                  <div class="text-xs break-all" :class="r.has_attachment ? 'font-mono text-gray-700 font-semibold' : 'text-gray-400'">
+                    {{ r.has_attachment ? r.file_name : '📭 暫無資料' }}
                   </div>
                   <div class="text-xs text-gray-400 mt-1">{{ r.operation_time }}</div>
                 </div>
@@ -413,14 +448,47 @@ function isUrgent(r) {
             </div>
           </div>
         </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </section>
 
-    <!-- ========== 下半：历史所有数据 ========== -->
-    <div>
-      <div class="flex items-center justify-between mb-4 sm:mb-5 flex-wrap gap-2">
-        <h3 class="text-base sm:text-lg font-bold text-gray-700">📚 歷史所有數據</h3>
-        <span class="text-xs text-gray-400">紅色行 = 從未列印，請優先處理</span>
+    <!-- ========== 下半：歷史所有數據 ========== -->
+    <section>
+      <!-- 板块大标题 + 搜索区 — 跟上半板块标题样式对齐 -->
+      <div class="flex items-center justify-between mb-4 sm:mb-5 flex-wrap gap-3 pb-3 border-b border-gray-200">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xl sm:text-2xl">📚</span>
+          <h2 class="text-base sm:text-lg font-bold text-gray-800">歷史所有數據</h2>
+          <span class="hidden sm:inline text-xs text-gray-400 ml-2">紅色行 = 從未列印</span>
+        </div>
+        <!-- 搜索区：日历 + 未列印过滤切换 -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <input
+            v-model="historyDateFilter"
+            type="date"
+            class="g-input"
+            style="height:36px;width:160px;padding:6px 10px;font-size:13px;"
+            title="按出庫日期搜索"
+          />
+          <button
+            v-if="historyDateFilter"
+            type="button"
+            class="text-xs text-gray-400 hover:text-gray-600 underline"
+            @click="historyDateFilter = ''"
+          >清除</button>
+          <button
+            type="button"
+            class="px-3 py-1.5 text-xs rounded border transition-colors flex items-center gap-1"
+            :class="historyUnprintedOnly
+              ? 'bg-red-500 border-red-500 text-white hover:bg-red-600'
+              : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'"
+            :title="historyUnprintedOnly ? '點擊顯示全部' : '只看未列印的批次（排除占位）'"
+            @click="historyUnprintedOnly = !historyUnprintedOnly"
+          >
+            <span>🚨</span>
+            <span>{{ historyUnprintedOnly ? '只看未列印' : '只看未列印' }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- 桌面：表格；isUrgent 整行红 -->
@@ -450,8 +518,8 @@ function isUrgent(r) {
                 class="font-semibold"
                 :class="isUrgent(r) ? 'text-red-700' : (r.has_attachment ? '' : 'text-gray-400')"
               >{{ r.outbound_date || '—' }}</td>
-              <td class="text-xs" :class="isUrgent(r) ? 'text-red-700' : (r.has_attachment ? '' : 'text-gray-400')">
-                <span v-if="r.has_attachment">{{ r.display_name || r.file_name }}</span>
+              <td class="text-xs" :class="isUrgent(r) ? 'text-red-700 font-mono' : (r.has_attachment ? 'font-mono' : 'text-gray-400')">
+                <span v-if="r.has_attachment">{{ r.file_name }}</span>
                 <span v-else>📭 暫無資料</span>
               </td>
               <td
@@ -511,8 +579,8 @@ function isUrgent(r) {
                 >
                   📅 {{ r.outbound_date || '—' }}
                 </div>
-                <div class="text-xs mt-1 break-all" :class="r.has_attachment ? 'text-gray-700' : 'text-gray-400'">
-                  {{ r.has_attachment ? (r.display_name || r.file_name) : '📭 暫無資料' }}
+                <div class="text-xs mt-1 break-all" :class="r.has_attachment ? 'font-mono text-gray-700' : 'text-gray-400'">
+                  {{ r.has_attachment ? r.file_name : '📭 暫無資料' }}
                 </div>
                 <div class="text-xs text-gray-400 mt-1">{{ r.operation_time }}</div>
               </div>
@@ -567,6 +635,6 @@ function isUrgent(r) {
           >下一頁</button>
         </div>
       </div>
-    </div>
+    </section>
   </div>
 </template>

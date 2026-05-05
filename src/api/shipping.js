@@ -14,10 +14,13 @@ import http from './http'
  * 列出面单。
  *
  * 后端契约：
- *   GET /api/warehouse/shipping/labels?scope=today|tomorrow|all&page=&page_size=
+ *   GET /api/warehouse/shipping/labels?scope=today|tomorrow|all
+ *     &page=&page_size=
+ *     &outbound_date=YYYY-MM-DD       (仅 scope=all 用，按出库日期精确过滤)
+ *     &only_unprinted=1               (仅 scope=all 用，只显示未列印 + 排除占位)
  *
  *   scope=today / tomorrow → 不分页，全量返回
- *     200 → { scope, labels: [...], total }
+ *     200 → { scope, labels: [...], total, target_date }
  *
  *   scope=all（含历史）→ 跟运单页同款分页
  *     200 → { scope, labels, page, page_size, total, total_pages }
