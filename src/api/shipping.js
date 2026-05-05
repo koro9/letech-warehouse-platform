@@ -68,3 +68,48 @@ export async function downloadLabel(labelId, fallbackFileName) {
   // 释放 blob URL（异步触发即可，下载已发起）
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+
+/**
+ * 触发后端按 scope 生成新的面单批次。
+ *
+ * 后端逻辑（见 le.shipping.label.action_generate_for_date）：
+ *   - 找该日期 hktv.order.item where 有 PDF + 未绑定 + 不是 3PL
+ *   - 合并它们的 PDF → 新 attachment → 新 label，items.shipping_label_id = label.id
+ *   - 没找到 → 创建占位 label（waybill_count=0、无 attachment）
+ *
+ * 并发安全：后端 PG advisory lock 串行化。同 scope 当前已有人在生成时，
+ *   立刻返回 status='busy'（不等），前端 toast 提示。
+ *
+ * 后端契约：
+ *   POST /api/warehouse/shipping/labels/generate
+ *   Body: { scope: 'today' | 'tomorrow' }
+ *
+ *   200 → {
+ *     status: 'completed' | 'busy',
+ *     scope,
+ *     label?:    { id, file_name, waybill_count, outbound_date, ... }   // completed 才有
+ *     by_name?:    string,                                              // busy 才有
+ *     started_at?: 'YYYY-MM-DD HH:MM:SS',                               // busy 才有
+ *   }
+ *   400 invalid_scope
+ */
+export function generateLabel(scope) {
+  return http.post('/warehouse/shipping/labels/generate', { scope })
+}
+
+/**
+ * 查询当前 today / tomorrow 是否有人在生成。前端 2.5s 轮询。
+ *
+ * 后端契约：
+ *   GET /api/warehouse/shipping/labels/generate-status
+ *
+ *   200 → {
+ *     today:    { is_running, by_name?, started_at? },
+ *     tomorrow: { is_running, by_name?, started_at? }
+ *   }
+ *
+ * 60 秒超时检测：后端如果 generate 进程崩溃留下僵尸状态，超时后自动视为 idle。
+ */
+export function getGenerateStatus() {
+  return http.get('/warehouse/shipping/labels/generate-status')
+}

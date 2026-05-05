@@ -23,6 +23,16 @@ export default defineConfig(({ mode, command }) => {
         '/api': {
           target: env.VITE_DEV_API_TARGET || 'http://localhost:8069',
           changeOrigin: true,
+          // Odoo 后端 _check_csrf 会校验 Origin 跟 web.base.url 同源；
+          // 浏览器从 localhost:5173 发出的 Origin 不匹配 Odoo 的 base_url
+          // (一般是 localhost:8069)，会被挡 403 cross_origin_rejected。
+          // 这里把 Origin 改写成 target，让 dev 里跟生产同源行为一致。
+          configure: (proxy) => {
+            const target = env.VITE_DEV_API_TARGET || 'http://localhost:8069'
+            proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.setHeader('Origin', target)
+            })
+          },
         },
       },
     },
