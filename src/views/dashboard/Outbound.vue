@@ -24,14 +24,14 @@ import { outbound, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import RefreshButton from '@/components/RefreshButton.vue'
-import { printLabel } from '@/utils/labelRenderers'
+import { printBarcodeLabel, printNutritionLabel } from '@/utils/labelRenderers'
 
 // ============================================================
 // 状态
 // ============================================================
 const orderInput = ref('')
 const skuInput = ref('')
-const printAfterScan = ref(false)
+const printAfterScan = ref(false)   // 是否列印 toggle — 开启时扫一件自动 print
 const items = ref([])
 const orderNumber = ref('')      // 显示用：tracking_id（员工扫的运单号）
 const pickingId = ref(null)      // 关键：validate 时用
@@ -42,8 +42,12 @@ const validating = ref(false)    // 防 validate 期间重复触发
 const orderInputEl = ref(null)
 const skuInputEl = ref(null)
 
-// 扫码列印 — 缓存 product + label_types 避免重复 lookup
-// key = 商品 barcode (le_barcode); value = { product, label_types }
+// 列印缓存 — 跟旧系统一致：员工手动点 [🖨️] 列印按钮
+// 关键设计：scanSku 时背景预热 lookup（不打印），员工后续点按钮时 cache 已命中，
+// 同步 window.open() → user gesture 链完整，浏览器不会拦 popup
+//
+// key = 商品 barcode (le_barcode)
+// value = 'loading' | { product, master_data } | undefined (未预热)
 const labelCache = new Map()
 
 const totalRequired = computed(() => items.value.reduce((s, i) => s + i.required, 0))
@@ -125,9 +129,12 @@ async function scanSku() {
   skuInput.value = ''
   skuInputEl.value?.focus()
 
-  // 列印开关 — 扫一件就出一张标签（不阻塞扫码主流程）
+  // 背景预热标签数据（不打印，不阻塞）— 员工后续点 [🖨️] 时 cache 命中
+  preloadLabel(item)
+
+  // toggle 开启 → 自动列印（iframe 方案不受 popup 拦截，可异步触发）
   if (printAfterScan.value) {
-    tryPrintLabelForItem(item)
+    autoPrintLabelForItem(item)
   }
 
   // 扫满整单 → 自动 validate（force=false 严格扫满）
@@ -136,51 +143,103 @@ async function scanSku() {
   }
 }
 
-// ============================================================
-// 扫码列印 — 调 labels.lookup → 打印当前阶段能渲染的标签
-// ============================================================
-// 当前阶段限制：
-//   - barcode 类标签 (needs_excel=false) 用 Odoo 数据直接打 ✓
-//   - 食品/保健/特殊/普通类 (needs_excel=true) 需员工在「標籤」页上传 Excel
-//     才能渲染，本期出库流程不集成 Excel 缓存读取，统一跳过 + toast 提示
-//   - 商品没配 label_type_ids / le_barcode 为空 / 找不到 → 静默或 toast 警告
-//     都不阻塞扫码累加（出库主流程优先）
-async function tryPrintLabelForItem(item) {
+/** 自动列印 — toggle 开启时 scanSku 调
+ *  iframe 不受 popup blocker 限制，可以 await 后再 print。
+ *  跟手动按钮 printLabelForItem 共用 cache，避免重复请求。
+ */
+async function autoPrintLabelForItem(item) {
   const bc = item.barcode
   if (!bc) return  // 商品没条码就别打了
-  try {
-    let cached = labelCache.get(bc)
-    if (!cached) {
-      const res = await labelsApi.lookupByBarcode(bc)
-      cached = { product: res.product, label_types: res.label_types || [] }
-      labelCache.set(bc, cached)
+  let cached = labelCache.get(bc)
+  // cache 命中（含 loading sentinel）— 等 loading 完成或直接用
+  if (cached === 'loading') {
+    // 等 preloadLabel 那次请求完成（最简单：轮询，一般 ~30-100ms 就好）
+    for (let i = 0; i < 50; i++) {
+      await new Promise(r => setTimeout(r, 50))
+      cached = labelCache.get(bc)
+      if (cached !== 'loading') break
     }
-    // 现阶段只打不需 Excel 的（基本就是 barcode 类）
-    const printable = cached.label_types.filter(lt => !lt.needs_excel)
-    if (printable.length === 0) {
-      // 商品有标签但都需 Excel — toast 一次（用 cache 避免反复弹）
-      if (!cached._toldUserNoData) {
-        showToast(`⚠️ ${item.sku} 標籤需 Excel 數據，未列印`, 'warning')
-        cached._toldUserNoData = true
+  }
+  if (!cached || cached === 'loading') {
+    showToast(`${item.sku} 標籤資料載入超時`, 'warning')
+    return
+  }
+  if (!cached.product && !cached.master_data) {
+    showToast(`找不到 ${item.sku} 的標籤資料`, 'warning')
+    return
+  }
+  if (cached.product) {
+    printBarcodeLabel(cached.product, 1)
+  }
+  if (cached.master_data) {
+    printNutritionLabel(cached.master_data, 1)
+  }
+}
+
+// ============================================================
+// 列印 — A 方案：手动按钮触发（跟旧系统一致）
+// ============================================================
+// 关键时序：
+//   1. scanSku 累加成功 → preloadLabel(item) 背景 lookup（fire-and-forget）
+//   2. 员工想打标签 → 点表格行的 [🖨️] 按钮 → click 是 user gesture
+//   3. printLabelForItem 同步从 cache 读 → 同步调 window.open + print()
+//   → user gesture 链完整，浏览器不拦 popup
+//
+// 罕见 race：员工扫完立刻点按钮，lookup 还没回来 → toast 提示稍后重试
+
+/** 背景预热（不打印）— scanSku 调，结果塞 cache */
+function preloadLabel(item) {
+  const bc = item.barcode
+  if (!bc) return
+  if (labelCache.has(bc)) return  // 已预热 / 加载中 / 已知失败 — 都不重发
+  labelCache.set(bc, 'loading')   // sentinel
+  labelsApi.lookupByBarcode(bc)
+    .then(res => {
+      labelCache.set(bc, {
+        product:     res.product,
+        master_data: res.master_data || null,
+      })
+    })
+    .catch(err => {
+      if (err.handledByInterceptor) {
+        labelCache.delete(bc)
+        return
       }
-      return
-    }
-    for (const lt of printable) {
-      printLabel(lt, cached.product, null, 1)
-    }
-  } catch (err) {
-    if (err.handledByInterceptor) return
-    const code = err.response?.data?.error
-    // product_has_no_labels / product_not_found 都缓存空结果避免重试
-    if (code === 'product_has_no_labels' || code === 'product_not_found') {
-      labelCache.set(bc, { product: null, label_types: [], _toldUserNoData: true })
-      const msg = code === 'product_has_no_labels'
-        ? `⚠️ ${item.sku} 未配置標籤類型`
-        : `⚠️ ${item.sku} 找不到標籤資料`
-      showToast(msg, 'warning')
-    } else {
-      showToast(err.response?.data?.error || '標籤列印失敗', 'error')
-    }
+      const code = err.response?.data?.error
+      if (code === 'product_not_found') {
+        // 找不到 — 缓存空结果防重试，按按钮时 toast 提示
+        labelCache.set(bc, { product: null, master_data: null })
+      } else {
+        labelCache.delete(bc)  // 其他错误清掉，下次按按钮可重试
+      }
+    })
+}
+
+/** 员工手动点 [🖨️] 按钮 — 同步 click 触发 */
+function printLabelForItem(item) {
+  const bc = item.barcode
+  if (!bc) {
+    showToast(`此商品無條碼`, 'warning')
+    return
+  }
+  const cached = labelCache.get(bc)
+  if (!cached || cached === 'loading') {
+    // 罕见 — 员工扫完瞬间就点
+    showToast('資料載入中，請稍後重試', 'warning')
+    // 没预热过的话现在补一发
+    if (!cached) preloadLabel(item)
+    return
+  }
+  if (!cached.product && !cached.master_data) {
+    showToast(`找不到 ${item.sku} 的標籤資料`, 'error')
+    return
+  }
+  // 同步 click → 同步 window.open，user gesture 链完整
+  if (cached.product) {
+    printBarcodeLabel(cached.product, 1)
+  }
+  if (cached.master_data) {
+    printNutritionLabel(cached.master_data, 1)
   }
 }
 
@@ -263,10 +322,16 @@ function reset() {
         :disabled="!pickingId"
       />
 
-      <!-- 是否打印 + 操作按钮组 — 手机一行装下，md+ 流式 -->
+      <!-- 是否列印 toggle + 操作按钮组 — 手机一行装下，md+ 流式 -->
+      <!-- toggle 开启：扫一件自动弹列印（iframe 方案）；关闭：员工手动点行内 [🖨️] -->
       <div class="flex items-center gap-2.5 md:gap-2.5 flex-wrap md:flex-nowrap md:ml-auto">
         <div class="g-toggle-wrap">
-          <button class="g-toggle" :class="{ on: printAfterScan }" @click="printAfterScan = !printAfterScan" />
+          <button
+            class="g-toggle"
+            :class="{ on: printAfterScan }"
+            :title="printAfterScan ? '掃一件自動彈列印對話框' : '只能手動點 [🖨️] 列印'"
+            @click="printAfterScan = !printAfterScan"
+          />
           <span class="text-sm text-gray-500">是否列印</span>
         </div>
         <RefreshButton v-if="pickingId" :on-refresh="refreshNow" />
@@ -295,11 +360,12 @@ function reset() {
             <th class="hidden lg:table-cell">barcode2</th>
             <th class="text-center">訂單數量</th>
             <th class="text-center">出庫數量</th>
+            <th class="text-center">列印</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="items.length === 0">
-            <td :colspan="6" class="text-center py-16 text-gray-300">
+            <td :colspan="7" class="text-center py-16 text-gray-300">
               掃描運單號開始出庫核驗
             </td>
           </tr>
@@ -312,12 +378,22 @@ function reset() {
             <td class="text-center font-bold" :class="it.scanned >= it.required ? 'text-green-600' : 'text-amber-600'">
               {{ it.scanned }}
             </td>
+            <td class="text-center">
+              <button
+                class="g-btn g-btn-teal"
+                style="padding:4px 12px;font-size:12px;"
+                :disabled="it.scanned === 0"
+                :title="it.scanned === 0 ? '請先掃描此商品' : '列印標籤'"
+                @click="printLabelForItem(it)"
+              >🖨️</button>
+            </td>
           </tr>
           <tr v-if="pickingId" class="bg-gray-50 font-bold">
             <td :colspan="4" class="text-right hidden lg:table-cell">合計</td>
             <td colspan="2" class="text-right lg:hidden">合計</td>
             <td class="text-center">{{ totalRequired }}</td>
             <td class="text-center">{{ totalScanned }}</td>
+            <td></td>
           </tr>
         </tbody>
       </table>
@@ -354,14 +430,22 @@ function reset() {
               :style="{ width: Math.min(100, (it.scanned / it.required) * 100) + '%' }"
             ></div>
           </div>
-          <!-- barcode 信息（折叠在 details 里） -->
-          <details v-if="it.barcode || it.barcode2" class="mt-2 text-xs text-gray-500">
-            <summary class="cursor-pointer">條碼</summary>
-            <div class="mt-1 space-y-0.5 font-mono">
-              <div v-if="it.barcode" class="break-all">{{ it.barcode }}</div>
-              <div v-if="it.barcode2" class="break-all opacity-70">{{ it.barcode2 }}</div>
-            </div>
-          </details>
+          <!-- 底部：barcode 折叠 + 列印按钮 -->
+          <div class="mt-2 flex items-center justify-between gap-2 flex-wrap">
+            <details v-if="it.barcode || it.barcode2" class="text-xs text-gray-500 flex-1 min-w-0">
+              <summary class="cursor-pointer">條碼</summary>
+              <div class="mt-1 space-y-0.5 font-mono">
+                <div v-if="it.barcode" class="break-all">{{ it.barcode }}</div>
+                <div v-if="it.barcode2" class="break-all opacity-70">{{ it.barcode2 }}</div>
+              </div>
+            </details>
+            <button
+              class="g-btn g-btn-teal flex-shrink-0"
+              style="padding:5px 14px;font-size:12px;"
+              :disabled="it.scanned === 0"
+              @click="printLabelForItem(it)"
+            >🖨️ 列印</button>
+          </div>
         </div>
         <!-- 合计 -->
         <div v-if="pickingId" class="g-card p-3 bg-gray-50 font-bold flex items-center justify-between">
