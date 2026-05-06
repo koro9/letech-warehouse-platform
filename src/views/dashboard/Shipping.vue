@@ -293,6 +293,13 @@ function rowState(r) {
   return 'placeholder'
 }
 
+// 部分失败：done + 已生成 PDF + 但 failed_reason 非空
+//   说明 N 张运单中有 M 张抓取失败，没含到合并 PDF 里
+//   员工要看这个角标决定是否重新生成（补抓那些缺的）
+function hasPartialFailure(r) {
+  return r.status === 'done' && r.has_attachment && r.failed_reason
+}
+
 // 行容器 class（背景色等）
 function rowClass(r) {
   if (isUrgent(r)) return 'bg-red-50 hover:bg-red-100'
@@ -408,7 +415,12 @@ function rowClass(r) {
                   <span v-else-if="rowState(r) === 'failed'" class="text-red-700 font-semibold" :title="r.failed_reason">
                     ❌ 處理失敗
                   </span>
-                  <span v-else-if="rowState(r) === 'ready'" class="font-mono">{{ r.file_name }}</span>
+                  <span v-else-if="rowState(r) === 'ready'" class="font-mono">
+                    {{ r.file_name }}
+                    <span v-if="hasPartialFailure(r)"
+                          class="ml-1 text-amber-600 cursor-help"
+                          :title="r.failed_reason">⚠️</span>
+                  </span>
                   <span v-else class="text-gray-400">📭 暫無資料</span>
                 </td>
                 <td class="text-center" :class="rowState(r) === 'ready' ? 'font-semibold' : 'text-gray-500'">
@@ -457,6 +469,9 @@ function rowClass(r) {
                     </span>
                     <span v-else-if="rowState(r) === 'ready'" class="font-mono text-gray-700 font-semibold">
                       {{ r.file_name }}
+                      <span v-if="hasPartialFailure(r)"
+                            class="ml-1 text-amber-600 cursor-help"
+                            :title="r.failed_reason">⚠️</span>
                     </span>
                     <span v-else class="text-gray-400">📭 暫無資料</span>
                   </div>
@@ -556,6 +571,9 @@ function rowClass(r) {
                       class="font-mono"
                       :class="isUrgent(r) ? 'text-red-700' : ''">
                   {{ r.file_name }}
+                  <span v-if="hasPartialFailure(r)"
+                        class="ml-1 text-amber-600 cursor-help"
+                        :title="r.failed_reason">⚠️</span>
                 </span>
                 <span v-else class="text-gray-400">📭 暫無資料</span>
               </td>
@@ -619,6 +637,9 @@ function rowClass(r) {
                   </span>
                   <span v-else-if="rowState(r) === 'ready'" class="font-mono text-gray-700">
                     {{ r.file_name }}
+                    <span v-if="hasPartialFailure(r)"
+                          class="ml-1 text-amber-600 cursor-help"
+                          :title="r.failed_reason">⚠️</span>
                   </span>
                   <span v-else class="text-gray-400">📭 暫無資料</span>
                 </div>
