@@ -66,21 +66,23 @@ const hasNext = computed(() => historyPage.value < historyTotalPages.value)
 const historyDateFilter = ref('')
 const historyUnprintedOnly = ref(false)
 
-// 生成锁状态（来自后端 / 全用户共享）
-// is_running=true 时所有用户的对应按钮都 disable
-const generateStatus = ref({
-  today:    { is_running: false, by_name: '', started_at: '' },
-  tomorrow: { is_running: false, by_name: '', started_at: '' },
-})
-const localGenerating = ref({ today: false, tomorrow: false })   // 本地"按下时的瞬时态"，等轮询接管
+// localGenerating: 本地按下按钮的瞬时态（防双击）— HTTP 响应回来即清
+// 真正的"还在处理中"判断走 sectionLabels 里 status='processing' 的 label
+const localGenerating = ref({ today: false, tomorrow: false })
 
-// 自动刷新开关 — 默认开。关闭后停止轮询，节省 RPS；
-// 代价：看不到别人正在生成的状态、别人生成完不会自动 reload 数据
+// 自动刷新开关 — 默认开。关闭后停止 5s 轮询；用户手动点按钮仍可用
 const autoRefresh = ref(true)
 
-// 任意 scope 是否在生成（按钮 disabled / 文案合成用）
+// 任意 scope 是否有 processing 状态的 label（按钮 disabled / 文案合成用）
+// 数据来自 sectionLabels — listLabels 端点已经返回 status / progress
 function isScopeBusy(scope) {
-  return generateStatus.value[scope].is_running || localGenerating.value[scope]
+  if (localGenerating.value[scope]) return true
+  return sectionLabels.value[scope].some(l => l.status === 'processing')
+}
+
+// 拿到该 scope 当前 processing 中的 label（取最新一个）
+function getProcessingLabel(scope) {
+  return sectionLabels.value[scope].find(l => l.status === 'processing')
 }
 
 // ============================================================
@@ -190,67 +192,48 @@ async function generateScope(scope) {
   try {
     const res = await shipping.generateLabel(scope)
     if (res.status === 'busy') {
-      // 后端同时撞锁：别人比我抢先一步
-      showToast(`⚙️ ${res.by_name || '其他用戶'} 正在生成中…`, 'warning')
-      // generateStatus 由下次轮询自动更新；这里强制刷一次让 UI 立即生效
-      pollStatus()
-    } else if (res.status === 'completed') {
-      const label = res.label || {}
-      if (label.waybill_count === 0) {
-        showToast('📭 暫無新運單面單（已記錄占位）', 'warning')
-      } else {
-        showToast(`✅ 已生成 ${label.waybill_count} 張運單面單`, 'success')
-      }
-      // 数据有变，立刻 reload
-      await loadAll()
+      // 同日已有 processing 中的 label / 同事务撞 advisory lock
+      const msg = res.detail || '其他用戶正在生成中'
+      showToast(`⚙️ ${msg}`, 'warning')
+    } else if (res.status === 'placeholder') {
+      // 没有待生成的 items — 创建了占位 label 作为信号
+      showToast('📭 暫無新運單面單（已記錄占位）', 'warning')
+    } else if (res.status === 'queued') {
+      // 已创建 placeholder label + 投递 queue_job 异步抓 PDF
+      const n = res.label?.waybill_count || 0
+      showToast(`⏳ 已排程：${n} 張運單，後台處理中…`, 'success')
     } else {
       showToast('生成完成但回應異常', 'error')
     }
+    // 不管哪个分支都立刻 reload — 让员工立刻看到新 record（含 processing 状态）
+    await loadAll()
   } catch (err) {
     if (!err.handledByInterceptor) {
       showToast(err.response?.data?.error || '生成失敗', 'error')
     }
   } finally {
     localGenerating.value[scope] = false
-    // 生成完后立刻拉一次状态，确保 UI 跟最新一致
-    pollStatus()
   }
 }
 
 // ============================================================
-// 生成状态轮询（让所有 tab / 所有用户看到一致的"正在生成"）
-// 注：每次轮询只拿 lock 状态，**不**重拉三块业务数据。
-//     只有检测到"running → idle"翻转（说明有人刚生成完）才触发 loadAll()。
-//     用户可手动关闭（autoRefresh=false）节省 RPS。
+// 5s 轮询 — 直接 loadAll 全量刷新
 // ============================================================
+// 改造后的设计：processing 状态在 le.shipping.label 上（带 progress 字段），
+// 必须重拉 listLabels 才能看到进度变化和 status 翻转，所以 5s 直接 loadAll。
+// loadAll 内部有 if (loading.value) return 自带去重保护，无需额外锁。
+// 当用户没操作时 5s 自动看到别人 / 自己 job 跑出来的最新 progress / 完成态。
 let pollTimer = null
 const POLL_INTERVAL_MS = 5000
 
-async function pollStatus() {
-  try {
-    const res = await shipping.getGenerateStatus()
-    const prev = generateStatus.value
-    generateStatus.value = {
-      today:    res.today    || { is_running: false },
-      tomorrow: res.tomorrow || { is_running: false },
-    }
-    // 检测 running -> idle 翻转：自动 reload 数据（别人刚生成完）
-    // 只检查别人触发的（本地 localGenerating 自己生成完会主动 reload）
-    if (prev.today.is_running && !generateStatus.value.today.is_running && !localGenerating.value.today) {
-      loadAll()
-    }
-    if (prev.tomorrow.is_running && !generateStatus.value.tomorrow.is_running && !localGenerating.value.tomorrow) {
-      loadAll()
-    }
-  } catch {
-    // 轮询失败静默；不打扰用户
-  }
+async function pollLabels() {
+  if (!autoRefresh.value) return
+  await loadAll()
 }
 
 function startPolling() {
   if (pollTimer) return
-  pollStatus()                                      // 立即查一次
-  pollTimer = setInterval(pollStatus, POLL_INTERVAL_MS)
+  pollTimer = setInterval(pollLabels, POLL_INTERVAL_MS)
 }
 
 function stopPolling() {
@@ -288,10 +271,36 @@ onDeactivated(() => {
 // ============================================================
 // 工具
 // ============================================================
-// 历史表格红行规则：未下载过 但 真有运单数据
-//   占位 label（waybill_count=0）不参与红行 — 它本来就没东西可打印
+// 历史表格红行规则：done + 真有 PDF 但从未下载过
+//   - processing/failed 不参与红行（不是"忘记下载"，是状态问题）
+//   - 占位 label（waybill_count=0）不参与红行 — 本来就没东西可打印
 function isUrgent(r) {
-  return r.download_count === 0 && r.waybill_count > 0
+  return r.status === 'done'
+    && r.has_attachment
+    && r.download_count === 0
+    && r.waybill_count > 0
+}
+
+// 行状态四态分类 — 决定 UI 样式 / 文案 / 是否显示下载按钮
+//   processing  → queue_job 后台抓 PDF 中（蓝底 + 进度提示）
+//   failed      → 抓 / 合并失败（红底 + 失败原因）
+//   ready       → 已生成 PDF（正常显示文件名 + 下载按钮）
+//   placeholder → 占位记录（暫無資料；done + 没 attachment）
+function rowState(r) {
+  if (r.status === 'processing') return 'processing'
+  if (r.status === 'failed') return 'failed'
+  if (r.has_attachment) return 'ready'
+  return 'placeholder'
+}
+
+// 行容器 class（背景色等）
+function rowClass(r) {
+  if (isUrgent(r)) return 'bg-red-50 hover:bg-red-100'
+  const s = rowState(r)
+  if (s === 'processing') return 'bg-blue-50'
+  if (s === 'failed') return 'bg-red-50'
+  if (s === 'placeholder') return 'bg-gray-50'
+  return ''
 }
 </script>
 
@@ -347,20 +356,23 @@ function isUrgent(r) {
             class="g-btn g-btn-teal"
             style="padding: 10px 36px;"
             :disabled="isScopeBusy(sec.key) || loading"
-            :title="isScopeBusy(sec.key) ? `${generateStatus[sec.key].by_name || '其他用戶'} 正在生成中` : '點擊生成本日新面單'"
+            :title="isScopeBusy(sec.key)
+              ? `處理中：${getProcessingLabel(sec.key)?.progress || ''}`
+              : '點擊生成本日新面單'"
             @click="generateScope(sec.key)"
           >
-            <span v-if="isScopeBusy(sec.key)">⏳ 生成中…</span>
+            <span v-if="isScopeBusy(sec.key)">
+              ⏳ 處理中
+              <span v-if="getProcessingLabel(sec.key)?.progress" class="ml-1 text-xs opacity-80">
+                ({{ getProcessingLabel(sec.key).progress }})
+              </span>
+            </span>
             <span v-else>⚡ {{ sec.title }}</span>
           </button>
           <span class="text-xs text-gray-400">
             {{ sectionLabels[sec.key].length }} 份
             <span v-if="sectionDates[sec.key]" class="text-gray-300">·</span>
             <span v-if="sectionDates[sec.key]">{{ sectionDates[sec.key] }}</span>
-            <span
-              v-if="generateStatus[sec.key].is_running && generateStatus[sec.key].by_name"
-              class="ml-1 text-amber-600"
-            >· {{ generateStatus[sec.key].by_name }} 處理中</span>
           </span>
         </div>
 
@@ -381,23 +393,33 @@ function isUrgent(r) {
               </tr>
               <tr
                 v-for="r in sectionLabels[sec.key]" :key="r.id"
-                :class="!r.has_attachment ? 'bg-gray-50' : ''"
+                :class="rowClass(r)"
               >
-                <!-- 占位 label：整行灰底 + 文字灰；正常 label：真实 PDF 文件名 -->
-                <td class="text-xs" :class="r.has_attachment ? 'font-mono' : 'text-gray-400'">
-                  <span v-if="r.has_attachment">{{ r.file_name }}</span>
-                  <span v-else>📭 暫無資料</span>
+                <!-- 文件名列：4 态分支
+                     processing → ⏳ 進度提示
+                     failed     → ❌ 失敗原因
+                     ready      → 真实 PDF 文件名
+                     placeholder→ 📭 暫無資料 -->
+                <td class="text-xs">
+                  <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
+                    ⏳ 處理中
+                    <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
+                  </span>
+                  <span v-else-if="rowState(r) === 'failed'" class="text-red-700 font-semibold" :title="r.failed_reason">
+                    ❌ 處理失敗
+                  </span>
+                  <span v-else-if="rowState(r) === 'ready'" class="font-mono">{{ r.file_name }}</span>
+                  <span v-else class="text-gray-400">📭 暫無資料</span>
                 </td>
-                <td class="text-center" :class="r.has_attachment ? 'font-semibold' : 'text-gray-400'">
+                <td class="text-center" :class="rowState(r) === 'ready' ? 'font-semibold' : 'text-gray-500'">
                   {{ r.waybill_count }}
                 </td>
-                <td class="text-xs" :class="r.has_attachment ? 'text-gray-500' : 'text-gray-400'">
+                <td class="text-xs" :class="rowState(r) === 'ready' ? 'text-gray-500' : 'text-gray-400'">
                   {{ r.operation_time }}
                 </td>
                 <td class="text-center">
-                  <!-- 占位 label 直接不显示按钮，留 dash —— 比 disabled「無檔」按钮更干净 -->
                   <button
-                    v-if="r.has_attachment"
+                    v-if="rowState(r) === 'ready'"
                     class="g-btn g-btn-teal"
                     style="padding:5px 20px;font-size:12px"
                     :disabled="downloadingId === r.id"
@@ -421,18 +443,27 @@ function isUrgent(r) {
             <div
               v-for="r in sectionLabels[sec.key]" :key="r.id"
               class="g-card p-3"
-              :class="!r.has_attachment ? 'bg-gray-50' : ''"
+              :class="rowClass(r)"
             >
               <div class="flex items-start justify-between gap-3 mb-2">
                 <div class="flex-1 min-w-0">
-                  <div class="text-xs break-all" :class="r.has_attachment ? 'font-mono text-gray-700 font-semibold' : 'text-gray-400'">
-                    {{ r.has_attachment ? r.file_name : '📭 暫無資料' }}
+                  <div class="text-xs break-all">
+                    <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
+                      ⏳ 處理中
+                      <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
+                    </span>
+                    <span v-else-if="rowState(r) === 'failed'" class="text-red-700 font-semibold" :title="r.failed_reason">
+                      ❌ 處理失敗
+                    </span>
+                    <span v-else-if="rowState(r) === 'ready'" class="font-mono text-gray-700 font-semibold">
+                      {{ r.file_name }}
+                    </span>
+                    <span v-else class="text-gray-400">📭 暫無資料</span>
                   </div>
                   <div class="text-xs text-gray-400 mt-1">{{ r.operation_time }}</div>
                 </div>
-                <!-- 占位 label 不显示下载按钮 —— 留空，比灰按钮干净 -->
                 <button
-                  v-if="r.has_attachment"
+                  v-if="rowState(r) === 'ready'"
                   class="g-btn g-btn-teal flex-shrink-0"
                   style="padding:6px 16px;font-size:12px"
                   :disabled="downloadingId === r.id"
@@ -442,8 +473,8 @@ function isUrgent(r) {
                 </button>
                 <span v-else class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
               </div>
-              <div class="text-xs" :class="r.has_attachment ? 'text-gray-500' : 'text-gray-400'">
-                運單數：<span :class="r.has_attachment ? 'font-semibold text-gray-800' : ''">{{ r.waybill_count }}</span>
+              <div class="text-xs text-gray-500">
+                運單數：<span :class="rowState(r) === 'ready' ? 'font-semibold text-gray-800' : ''">{{ r.waybill_count }}</span>
               </div>
             </div>
           </div>
@@ -508,47 +539,52 @@ function isUrgent(r) {
             <tr v-if="!loading && historyLabels.length === 0">
               <td colspan="6" class="text-center text-gray-400 py-10">暫無記錄</td>
             </tr>
-            <tr
-              v-for="r in historyLabels" :key="r.id"
-              :class="isUrgent(r)
-                ? 'bg-red-50 hover:bg-red-100'
-                : (!r.has_attachment ? 'bg-gray-50' : '')"
-            >
-              <td
-                class="font-semibold"
-                :class="isUrgent(r) ? 'text-red-700' : (r.has_attachment ? '' : 'text-gray-400')"
-              >{{ r.outbound_date || '—' }}</td>
-              <td class="text-xs" :class="isUrgent(r) ? 'text-red-700 font-mono' : (r.has_attachment ? 'font-mono' : 'text-gray-400')">
-                <span v-if="r.has_attachment">{{ r.file_name }}</span>
-                <span v-else>📭 暫無資料</span>
+            <tr v-for="r in historyLabels" :key="r.id" :class="rowClass(r)">
+              <td class="font-semibold"
+                  :class="isUrgent(r) ? 'text-red-700' : (rowState(r) === 'ready' ? '' : 'text-gray-500')">
+                {{ r.outbound_date || '—' }}
               </td>
-              <td
-                class="text-center"
-                :class="isUrgent(r)
-                  ? 'text-red-700 font-semibold'
-                  : (r.has_attachment ? 'font-semibold' : 'text-gray-400')"
-              >{{ r.waybill_count }}</td>
-              <td class="text-xs" :class="isUrgent(r) ? 'text-red-600' : (r.has_attachment ? 'text-gray-500' : 'text-gray-400')">
+              <td class="text-xs">
+                <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
+                  ⏳ 處理中
+                  <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
+                </span>
+                <span v-else-if="rowState(r) === 'failed'" class="text-red-700 font-semibold" :title="r.failed_reason">
+                  ❌ 處理失敗
+                </span>
+                <span v-else-if="rowState(r) === 'ready'"
+                      class="font-mono"
+                      :class="isUrgent(r) ? 'text-red-700' : ''">
+                  {{ r.file_name }}
+                </span>
+                <span v-else class="text-gray-400">📭 暫無資料</span>
+              </td>
+              <td class="text-center"
+                  :class="isUrgent(r)
+                    ? 'text-red-700 font-semibold'
+                    : (rowState(r) === 'ready' ? 'font-semibold' : 'text-gray-500')">
+                {{ r.waybill_count }}
+              </td>
+              <td class="text-xs"
+                  :class="isUrgent(r) ? 'text-red-600' : (rowState(r) === 'ready' ? 'text-gray-500' : 'text-gray-400')">
                 {{ r.operation_time }}
               </td>
               <td class="text-center">
-                <span
-                  class="g-badge"
-                  :style="isUrgent(r)
-                    ? 'background:#fee2e2;color:#b91c1c;'
-                    : (r.has_attachment
-                       ? 'background:#ecfdf5;color:#047857;'
-                       : 'background:#f3f4f6;color:#9ca3af;')"
-                >{{ r.download_count }}</span>
+                <span class="g-badge"
+                      :style="isUrgent(r)
+                        ? 'background:#fee2e2;color:#b91c1c;'
+                        : (rowState(r) === 'ready'
+                           ? 'background:#ecfdf5;color:#047857;'
+                           : 'background:#f3f4f6;color:#9ca3af;')">
+                  {{ r.download_count }}
+                </span>
               </td>
               <td class="text-center">
-                <button
-                  v-if="r.has_attachment"
-                  class="g-btn g-btn-teal"
-                  style="padding:5px 20px;font-size:12px"
-                  :disabled="downloadingId === r.id"
-                  @click="downloadLabel(r)"
-                >
+                <button v-if="rowState(r) === 'ready'"
+                        class="g-btn g-btn-teal"
+                        style="padding:5px 20px;font-size:12px"
+                        :disabled="downloadingId === r.id"
+                        @click="downloadLabel(r)">
                   {{ downloadingId === r.id ? '下載中…' : '下載' }}
                 </button>
                 <span v-else class="text-gray-300">—</span>
@@ -564,51 +600,55 @@ function isUrgent(r) {
           暫無記錄
         </div>
         <div v-else class="space-y-2">
-          <div
-            v-for="r in historyLabels" :key="r.id"
-            class="g-card p-3"
-            :class="isUrgent(r)
-              ? 'border-red-200 bg-red-50'
-              : (!r.has_attachment ? 'bg-gray-50' : '')"
-          >
+          <div v-for="r in historyLabels" :key="r.id"
+               class="g-card p-3"
+               :class="[rowClass(r), isUrgent(r) ? 'border-red-200' : '']">
             <div class="flex items-start justify-between gap-3 mb-2">
               <div class="flex-1 min-w-0">
-                <div
-                  class="font-semibold text-sm"
-                  :class="isUrgent(r) ? 'text-red-700' : (r.has_attachment ? 'text-gray-800' : 'text-gray-400')"
-                >
+                <div class="font-semibold text-sm"
+                     :class="isUrgent(r) ? 'text-red-700' : (rowState(r) === 'ready' ? 'text-gray-800' : 'text-gray-500')">
                   📅 {{ r.outbound_date || '—' }}
                 </div>
-                <div class="text-xs mt-1 break-all" :class="r.has_attachment ? 'font-mono text-gray-700' : 'text-gray-400'">
-                  {{ r.has_attachment ? r.file_name : '📭 暫無資料' }}
+                <div class="text-xs mt-1 break-all">
+                  <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
+                    ⏳ 處理中
+                    <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
+                  </span>
+                  <span v-else-if="rowState(r) === 'failed'" class="text-red-700 font-semibold" :title="r.failed_reason">
+                    ❌ 處理失敗
+                  </span>
+                  <span v-else-if="rowState(r) === 'ready'" class="font-mono text-gray-700">
+                    {{ r.file_name }}
+                  </span>
+                  <span v-else class="text-gray-400">📭 暫無資料</span>
                 </div>
                 <div class="text-xs text-gray-400 mt-1">{{ r.operation_time }}</div>
               </div>
-              <button
-                v-if="r.has_attachment"
-                class="g-btn g-btn-teal flex-shrink-0"
-                style="padding:6px 16px;font-size:12px"
-                :disabled="downloadingId === r.id"
-                @click="downloadLabel(r)"
-              >
+              <button v-if="rowState(r) === 'ready'"
+                      class="g-btn g-btn-teal flex-shrink-0"
+                      style="padding:6px 16px;font-size:12px"
+                      :disabled="downloadingId === r.id"
+                      @click="downloadLabel(r)">
                 {{ downloadingId === r.id ? '下載中…' : '下載' }}
               </button>
               <span v-else class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
             </div>
-            <div class="flex items-center gap-2 flex-wrap text-xs" :class="!r.has_attachment ? 'text-gray-400' : ''">
-              <span :class="r.has_attachment ? 'text-gray-500' : ''">
-                運單：<span :class="r.has_attachment ? 'font-semibold text-gray-800' : ''">{{ r.waybill_count }}</span>
+            <div class="flex items-center gap-2 flex-wrap text-xs text-gray-500">
+              <span>
+                運單：<span :class="rowState(r) === 'ready' ? 'font-semibold text-gray-800' : ''">
+                  {{ r.waybill_count }}
+                </span>
               </span>
               <span class="text-gray-300">·</span>
-              <span :class="r.has_attachment ? 'text-gray-500' : ''">列印次數：</span>
-              <span
-                class="g-badge"
-                :style="isUrgent(r)
-                  ? 'background:#fee2e2;color:#b91c1c;'
-                  : (r.has_attachment
-                     ? 'background:#ecfdf5;color:#047857;'
-                     : 'background:#f3f4f6;color:#9ca3af;')"
-              >{{ r.download_count }}</span>
+              <span>列印次數：</span>
+              <span class="g-badge"
+                    :style="isUrgent(r)
+                      ? 'background:#fee2e2;color:#b91c1c;'
+                      : (rowState(r) === 'ready'
+                         ? 'background:#ecfdf5;color:#047857;'
+                         : 'background:#f3f4f6;color:#9ca3af;')">
+                {{ r.download_count }}
+              </span>
             </div>
           </div>
         </div>
