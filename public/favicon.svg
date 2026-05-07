@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 圆角方块背景 — 用项目主题色 #6BAB9E -->
+  <rect width="64" height="64" rx="14" fill="#6BAB9E"/>
+
+  <!-- 白色包裹（仓储 box）图形：六边形 + 内部分割线 -->
+  <!-- 外轮廓 -->
+  <path d="M32 14 L51 23 L51 43 L32 52 L13 43 L13 23 Z"
+        fill="none" stroke="white" stroke-width="3.2" stroke-linejoin="round"/>
+  <!-- 顶部 V 字（盒子开口）+ 中竖线（让它有 3D 立体感）-->
+  <path d="M13 23 L32 32 L51 23" fill="none" stroke="white" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M32 32 L32 52" fill="none" stroke="white" stroke-width="3.2"/>
+</svg>

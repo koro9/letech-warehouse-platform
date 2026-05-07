@@ -58,7 +58,7 @@ onMounted(prefetchViews)
 // 顶部业务系统 tab — shortLabel 给平板紧凑布局用
 const systems = [
   { key: 'dashboard', label: '📤 出貨作業中心', shortLabel: '📤 出貨', home: { name: 'home' } },
-  { key: 'receiving', label: '📦 PO 收貨平台',   shortLabel: '📦 收貨', home: { name: 'receiving-counting' } },
+  { key: 'receiving', label: '📦 PO 收貨平台',   shortLabel: '📦 收貨', home: { name: 'receiving-alloc' } },
   { key: 'query',     label: '🔍 智能查詢',       shortLabel: '🔍 查詢', home: { name: 'query-home' } },
 ]
 
@@ -81,8 +81,9 @@ const sidebars = {
     // { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },
   ],
   receiving: [
-    { name: 'receiving-counting', label: 'PO 點貨',        icon: '📦' },
+    // 业务流：分配（plan）→ 點貨（check）→ Transfer（execute），所以收貨分配排第一位
     { name: 'receiving-alloc',    label: '收貨分配',       icon: '📋' },
+    { name: 'receiving-counting', label: 'PO 點貨',        icon: '📦' },
     { name: 'receiving-transfer', label: 'Transfer Order', icon: '🚚' },
   ],
   query: [

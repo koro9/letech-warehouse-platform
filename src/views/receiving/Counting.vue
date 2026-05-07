@@ -1,62 +1,55 @@
 <script setup>
 /**
- * PO 點貨 (M3a) — 复刻 demo s3-m-counting
+ * PO 點貨 (M3a) — 接 Odoo PO 真后端
  *
- * 三态：
- *   1. 没有 curPO     → PO 输入页
+ * 业务流：
+ *   M3b 收貨分配 已录"按仓应收数" → M3a 员工照应收数对照清点实收
+ *   ↓
+ *   GET counting → 拿到 PO + items + 应收 allocs (来自 M3b 的 le_allocation_data)
+ *                  + 已录的 counting (员工之前录到一半的)
+ *   ↓
+ *   员工按 alloc × 仓 × 效期 录入实收数 / 处理 Remarks
+ *   ↓
+ *   POST counting → 行级乐观锁，冲突 modal 同 M3b
+ *
+ * 三态 UI 保留 demo 设计：
+ *   1. 没有 curPO     → PO 输入页（标题已改 "PO 點貨平台"）
  *   2. 有 curPO 没 curSKU → SKU 列表页（带条码扫描入口）
  *   3. 有 curSKU      → SKU 详情页（每仓库 × 每效期 数量录入 + Remarks 处理）
  *
- * Demo 规则：
- *   - 每个 SKU 默认无效期（dates: []），用 entries[''] 单值；
- *     新增第一个日期时把 '' 的值迁移到这个日期下；继续加日期则累计 entries[date]=0
- *   - 移除最后一个日期则把当前数量退回 entries['']
- *   - Combo 类型 alloc：实际要拿的数量 = whSum × multiplier
- *   - Remarks 处理：要求录入操作员姓名 + 时间戳
- *   - 扫码：barcode 命中即跳转该 SKU 详情
+ * 仓库列表（WH）改为动态 — 每个 alloc 自带 warehouses 字典，里面 keys 决定
+ * 该 alloc 显示哪几个仓的录入框（main alloc 通常含 3PL/WS/SD4/额外列；
+ * combo alloc 只含 3PL）。不再写死全局 WH 常量。
  */
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
+import { po as poApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import RefreshButton from '@/components/RefreshButton.vue'
 
-const WH = ['3PL', 'WS', 'SD4']
+// 仓库色板 — 已知仓位用预定义色，新仓位（额外列名）fallback 灰色
 const WH_COLOR = { '3PL': '#4A90D9', 'WS': '#E6A23C', 'SD4': '#67C23A' }
+function whColor(w) { return WH_COLOR[w] || '#6b7280' }
 
-// Demo PO mock — 跟 demo 一比一
-const poDb = {
-  '12345': {
-    po: '12345',
-    items: [
-      { sku: 'LT10001234', barcode: '4710001334001', name: '有機燕麥片 500g',  perBox: 10, remarks: '新貨',
-        allocs: [{ id: 'LT10001234-s', type: 'single', label: '有機燕麥片 500g', warehouses: { '3PL': 100, 'WS': 60, 'SD4': 40 } }] },
-      { sku: 'LT10001200', barcode: '4710001000002', name: '純天然蜂蜜 250ml', perBox: 12, remarks: 'Check',
-        allocs: [
-          { id: 'LT10001200-s', type: 'single', label: '純天然蜂蜜 250ml', warehouses: { '3PL': 50, 'WS': 30, 'SD4': 20 } },
-          { id: 'LT10001200A',  type: 'combo',  label: 'LT10001200A', mult: 2, warehouses: { '3PL': 40 } },
-        ] },
-      { sku: 'LT10001206', barcode: '4710002006003', name: '日式抹茶粉 100g', perBox: 10, remarks: '',
-        allocs: [{ id: 'LT10001206-s', type: 'single', label: '日式抹茶粉 100g', warehouses: { '3PL': 80, 'WS': 70, 'SD4': 50 } }] },
-      { sku: 'LT10001250', barcode: '4710003050004', name: '椰子水 330ml',     perBox: 24, remarks: '',
-        allocs: [{ id: 'LT10001250-s', type: 'single', label: '椰子水 330ml',  warehouses: { '3PL': 240, 'WS': 120, 'SD4': 120 } }] },
-      { sku: 'LT10001210', barcode: '4710005010005', name: '綜合堅果 200g',   perBox: 10, remarks: '',
-        allocs: [
-          { id: 'LT10001210-s', type: 'single', label: '綜合堅果 200g', warehouses: { '3PL': 60, 'WS': 36, 'SD4': 24 } },
-          { id: 'LT10001210A',  type: 'combo',  label: 'LT10001210A', mult: 3, warehouses: { '3PL': 30 } },
-        ] },
-    ],
-  },
-}
-
-// ========== 状态 ==========
-const poInput = ref('12345')
-const curPO = ref(null)
-const curSKU = ref(null)
+// ============================================================
+// 状态
+// ============================================================
+const loading = ref(false)
+const saving = ref(false)
+const poInput = ref('')
+const curPO = ref(null)         // { po, items[] } 来自 API
+const curSKU = ref(null)         // 当前打开的 SKU 字符串
 
 // 每 SKU 的录入状态：{ dates: [], a: { [allocId]: { [wh]: { [dateKey]: qty } } } }
 const pk = reactive({})
 // 每 SKU 的 remarks 处理状态：{ handled, by, time }
 const remarksStatus = reactive({})
+// 每 SKU 的服务端 last_modified_at（用于乐观锁）+ last_modified_by
+const lineMeta = reactive({})    // { [sku]: { po_line_id, last_modified_at, last_modified_by } }
+// dirty tracking — 哪些 SKU 改过了
+const dirtySkus = reactive(new Set())
+
 // 每 SKU 是否展开"加日期"输入
 const showDI = reactive({})
 // 每 alloc 的 combo 横幅是否展开
@@ -64,7 +57,6 @@ const comboExpanded = reactive({})
 
 const newDate = ref('')
 const newDateEl = ref(null)
-
 const bcInput = ref('')
 
 // Remarks 弹窗
@@ -75,23 +67,25 @@ const rkNameEl = ref(null)
 // 扫码相机弹窗（视觉占位 — 真机相机能力放后续 PWA 阶段）
 const scannerOpen = ref(false)
 
-// ========== 计算 ==========
-const curItem = computed(() =>
-  curPO.value && curSKU.value ? curPO.value.items.find(i => i.sku === curSKU.value) : null,
-)
-const curPk = computed(() => curSKU.value ? pk[curSKU.value] : null)
-const hasDates = computed(() => (curPk.value?.dates.length || 0) > 0)
-
-// 用于 SKU 详情的统计
-const detailStats = computed(() => {
-  const it = curItem.value
-  if (!it) return null
-  const tu = itemUnits(it)
-  return { tu, tb: Math.floor(tu / it.perBox), br: tu % it.perBox }
+// 冲突 modal（跟 M3b 同款）
+const conflictModal = reactive({
+  open: false,
+  conflicts: [],
+  resolutions: {},
 })
 
-// ========== 工具 ==========
-function whSum(alloc) { return WH.reduce((s, w) => s + (alloc.warehouses[w] || 0), 0) }
+// ============================================================
+// 工具：仓库 keys 来自 alloc.warehouses（动态）
+// ============================================================
+function whKeysOf(alloc) {
+  if (!alloc || !alloc.warehouses) return []
+  return Object.keys(alloc.warehouses)
+}
+
+function whSum(alloc) {
+  if (!alloc || !alloc.warehouses) return 0
+  return Object.values(alloc.warehouses).reduce((s, v) => s + (parseInt(v) || 0), 0)
+}
 
 function whQty(sku, allocId, wh) {
   const e = pk[sku]?.a?.[allocId]?.[wh]
@@ -99,16 +93,20 @@ function whQty(sku, allocId, wh) {
   return Object.values(e).reduce((s, v) => s + (parseInt(v) || 0), 0)
 }
 
-function whPk(sku, allocId) {
-  return WH.reduce((s, w) => s + whQty(sku, allocId, w), 0)
+function whPk(sku, allocId, alloc) {
+  return whKeysOf(alloc).reduce((s, w) => s + whQty(sku, allocId, w), 0)
 }
 
 function itemUnits(it) {
-  return it.allocs.reduce((s, a) => s + whSum(a) * (a.type === 'combo' ? a.mult : 1), 0)
+  return it.allocs.reduce(
+    (s, a) => s + whSum(a) * (a.type === 'combo' ? (a.mult || 1) : 1), 0,
+  )
 }
 
 function itemPkU(it) {
-  return it.allocs.reduce((s, a) => s + whPk(it.sku, a.id) * (a.type === 'combo' ? a.mult : 1), 0)
+  return it.allocs.reduce(
+    (s, a) => s + whPk(it.sku, a.id, a) * (a.type === 'combo' ? (a.mult || 1) : 1), 0,
+  )
 }
 
 function fmtDate(d) { return `${d.slice(0,4)}/${d.slice(4,6)}/${d.slice(6,8)}` }
@@ -125,40 +123,131 @@ function statusOfItem(it) {
   return { label: '進行中', cls: 'text-amber-600 bg-amber-50' }
 }
 
-// ========== 加载 PO ==========
-function loadPO() {
+// ============================================================
+// 计算
+// ============================================================
+const curItem = computed(() =>
+  curPO.value && curSKU.value ? curPO.value.items.find(i => i.sku === curSKU.value) : null,
+)
+const curPk = computed(() => curSKU.value ? pk[curSKU.value] : null)
+const hasDates = computed(() => (curPk.value?.dates.length || 0) > 0)
+
+const detailStats = computed(() => {
+  const it = curItem.value
+  if (!it) return null
+  const tu = itemUnits(it)
+  const perBox = parseInt(it.perBox) || 0
+  return {
+    tu,
+    tb: perBox > 0 ? Math.floor(tu / perBox) : 0,
+    br: perBox > 0 ? tu % perBox : tu,
+  }
+})
+
+// ============================================================
+// 加载 PO
+// ============================================================
+async function loadPO() {
   const v = poInput.value.trim()
-  if (!v) { showToast('請輸入PO', 'warning'); return }
-  const p = poDb[v]
-  if (!p) { showToast('找不到', 'error'); return }
-  curPO.value = p
-  // 初始化 pk 结构（如尚未初始化）
-  p.items.forEach(it => {
-    if (!pk[it.sku]) {
-      pk[it.sku] = { dates: [], a: {} }
+  if (!v) { showToast('請輸入 PO 單號', 'warning'); return }
+  loading.value = true
+  try {
+    const res = await poApi.getCounting(v)
+    // 重置本地状态
+    Object.keys(pk).forEach(k => delete pk[k])
+    Object.keys(remarksStatus).forEach(k => delete remarksStatus[k])
+    Object.keys(showDI).forEach(k => delete showDI[k])
+    Object.keys(comboExpanded).forEach(k => delete comboExpanded[k])
+    Object.keys(lineMeta).forEach(k => delete lineMeta[k])
+    dirtySkus.clear()
+
+    // 填充 curPO
+    curPO.value = {
+      po: res.po_name,
+      partner_name: res.partner_name,
+      state: res.state,
+      items: res.items || [],
+    }
+
+    // 初始化每 SKU 的 pk / remarksStatus / lineMeta
+    res.items.forEach(it => {
+      // pk: 从后端 counting 拿，或者用空默认
+      const counting = it.counting || { dates: [], a: {} }
+      pk[it.sku] = {
+        dates: Array.isArray(counting.dates) ? counting.dates.slice() : [],
+        a: {},
+      }
+      // 为每个 alloc × 仓 × 效期 准备 entries
       it.allocs.forEach(al => {
         pk[it.sku].a[al.id] = {}
-        WH.forEach(w => {
+        whKeysOf(al).forEach(w => {
+          // 应收 > 0 才显示输入；应收 0 的（如 main alloc 在 M3b 没分这仓）跳过
           if ((al.warehouses[w] || 0) > 0) {
-            pk[it.sku].a[al.id][w] = { '': 0 }
+            // 如果后端有现成数据 → 用后端的；否则按 dates 状态初始化空 entries
+            const fromBe = counting.a?.[al.id]?.[w]
+            if (fromBe && typeof fromBe === 'object') {
+              pk[it.sku].a[al.id][w] = { ...fromBe }
+            } else {
+              if (pk[it.sku].dates.length === 0) {
+                pk[it.sku].a[al.id][w] = { '': 0 }
+              } else {
+                const init = {}
+                pk[it.sku].dates.forEach(dt => { init[dt] = 0 })
+                pk[it.sku].a[al.id][w] = init
+              }
+            }
           }
         })
       })
+
+      // Remarks 处理状态
+      remarksStatus[it.sku] = it.remarks_handled || { handled: false, by: '', time: '' }
+
+      // 行 meta（乐观锁用）
+      lineMeta[it.sku] = {
+        po_line_id:       it.po_line_id,
+        last_modified_at: it.last_modified_at,
+        last_modified_by: it.last_modified_by,
+      }
+    })
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    const status = err.response?.status
+    const data = err.response?.data || {}
+    if (status === 404) {
+      showToast(`❌ 找不到 PO「${v}」`, 'error')
+    } else if (status === 422) {
+      showToast(`⚠️ ${data.detail || `此 PO 狀態（${data.state}）不允許進入點貨`}`, 'warning')
+    } else if (status === 403) {
+      showToast(`⚠️ ${data.detail || '此功能僅限內部員工'}`, 'error')
+    } else {
+      showToast(data.error || '載入失敗', 'error')
     }
-    if (it.remarks && !remarksStatus[it.sku]) {
-      remarksStatus[it.sku] = { handled: false, by: '', time: '' }
-    }
-  })
+  } finally {
+    loading.value = false
+  }
 }
 
-function backToPO()   { curPO.value = null; curSKU.value = null }
+function backToPO() {
+  if (dirtySkus.size > 0
+      && !confirm(`有 ${dirtySkus.size} 項未儲存的修改，確定離開？`)) {
+    return
+  }
+  curPO.value = null
+  curSKU.value = null
+}
+
 function backToList() { curSKU.value = null }
 
-// 后端就绪后：refresh 应重新拉 PO 元数据（item 列表/箱入/备注等只读字段），
-// 保留 pk/showDI/comboExpanded/remarksStatus 这些用户当前正在录入的本地态
 async function refreshData() {
   if (!curPO.value) return
-  showToast('已是最新（後端待接入）', 'success')
+  if (dirtySkus.size > 0
+      && !confirm(`有 ${dirtySkus.size} 項未儲存的修改，刷新會丟失。確定？`)) {
+    return
+  }
+  poInput.value = curPO.value.po
+  await loadPO()
+  showToast('✅ 已刷新', 'success')
 }
 const { refreshNow } = usePageRefresh(refreshData)
 
@@ -167,7 +256,9 @@ function openSKU(sku) {
   if (typeof showDI[sku] === 'undefined') showDI[sku] = false
 }
 
-// ========== 扫码 ==========
+// ============================================================
+// 扫码
+// ============================================================
 function scanBC() {
   const v = bcInput.value.trim()
   if (!v || !curPO.value) return
@@ -184,7 +275,20 @@ function scanBC() {
 function openScanner()  { scannerOpen.value = true }
 function closeScanner() { scannerOpen.value = false }
 
-// ========== 日期 ==========
+// ============================================================
+// Dirty tracking
+// ============================================================
+function markDirty(sku) {
+  if (sku) dirtySkus.add(sku)
+}
+
+function onPkInput(sku) {
+  markDirty(sku)
+}
+
+// ============================================================
+// 日期
+// ============================================================
 function toggleDateInput() {
   const sku = curSKU.value
   showDI[sku] = !showDI[sku]
@@ -200,7 +304,7 @@ function addDate() {
   const isFirst = d.dates.length === 0
   d.dates.push(v)
   curItem.value.allocs.forEach(al => {
-    WH.forEach(w => {
+    whKeysOf(al).forEach(w => {
       const entries = d.a[al.id]?.[w]
       if (!entries) return
       if (isFirst) {
@@ -214,6 +318,7 @@ function addDate() {
   })
   newDate.value = ''
   showDI[sku] = false
+  markDirty(sku)
   showToast(`✅ 已新增 ${fmtDate(v)}`, 'success')
 }
 
@@ -222,7 +327,7 @@ function removeDate(idx) {
   const d = pk[sku]
   const removed = d.dates.splice(idx, 1)[0]
   curItem.value.allocs.forEach(al => {
-    WH.forEach(w => {
+    whKeysOf(al).forEach(w => {
       const entries = d.a[al.id]?.[w]
       if (!entries) return
       const removedQty = entries[removed] || 0
@@ -230,14 +335,19 @@ function removeDate(idx) {
       if (d.dates.length === 0) entries[''] = removedQty
     })
   })
+  markDirty(sku)
 }
 
-// ========== Combo 横幅 ==========
+// ============================================================
+// Combo 横幅
+// ============================================================
 function toggleCombo(allocId) {
   comboExpanded[allocId] = !comboExpanded[allocId]
 }
 
-// ========== Remarks 弹窗 ==========
+// ============================================================
+// Remarks 弹窗
+// ============================================================
 function openRkModal() {
   rkName.value = ''
   rkOpen.value = true
@@ -248,21 +358,173 @@ function confirmRemark() {
   const name = rkName.value.trim()
   if (!name) { showToast('⚠️ 請輸入姓名', 'warning'); return }
   remarksStatus[curSKU.value] = { handled: true, by: name, time: fmtTime(new Date()) }
+  markDirty(curSKU.value)
   rkOpen.value = false
   showToast('✅ 已標記', 'success')
 }
 function undoRemark() {
   remarksStatus[curSKU.value] = { handled: false, by: '', time: '' }
+  markDirty(curSKU.value)
   showToast('↩️ 已撤銷', 'success')
 }
 
-// ========== 保存 ==========
-function saveDetail() {
-  showToast('✅ 已儲存', 'success')
-  setTimeout(() => { curSKU.value = null }, 600)
+// ============================================================
+// 保存（行级乐观锁 + 冲突 modal）
+// ============================================================
+function buildPayloadRow(sku) {
+  const meta = lineMeta[sku]
+  const data = pk[sku]
+  return {
+    po_line_id:        meta.po_line_id,
+    counting:          { dates: data.dates.slice(), a: data.a },
+    remarks_handled:   remarksStatus[sku] || { handled: false, by: '', time: '' },
+    _last_modified_at: meta.last_modified_at,
+  }
 }
 
-// ========== 单元格状态 ==========
+async function saveAll() {
+  if (saving.value) return
+  if (dirtySkus.size === 0) {
+    showToast('沒有需要儲存的修改', 'warning')
+    return
+  }
+  saving.value = true
+  try {
+    const dirtyRows = [...dirtySkus].map(buildPayloadRow)
+    const res = await poApi.saveCounting(curPO.value.po, { rows: dirtyRows })
+    if (res.ok) {
+      const newTs = res.server_time
+      ;(res.saved || []).forEach(id => {
+        // 找到对应的 sku
+        const sku = Object.keys(lineMeta).find(s => lineMeta[s].po_line_id === id)
+        if (sku) {
+          dirtySkus.delete(sku)
+          if (newTs) lineMeta[sku].last_modified_at = newTs
+        }
+      })
+      showToast(`✅ 已儲存 ${(res.saved || []).length} 項`, 'success')
+    } else {
+      showToast('儲存回應異常', 'warning')
+    }
+  } catch (err) {
+    if (err.handledByInterceptor) {
+      saving.value = false
+      return
+    }
+    const status = err.response?.status
+    const data = err.response?.data || {}
+    if (status === 207) {
+      // 部分冲突
+      ;(data.saved || []).forEach(id => {
+        const sku = Object.keys(lineMeta).find(s => lineMeta[s].po_line_id === id)
+        if (sku) {
+          dirtySkus.delete(sku)
+          if (data.server_time) lineMeta[sku].last_modified_at = data.server_time
+        }
+      })
+      conflictModal.conflicts = data.conflicts || []
+      conflictModal.resolutions = {}
+      data.conflicts.forEach(c => {
+        conflictModal.resolutions[c.po_line_id] = 'keep'
+      })
+      conflictModal.open = true
+      showToast(
+        `⚠️ ${data.conflicts.length} 項衝突，已保存 ${(data.saved || []).length} 項`,
+        'warning',
+      )
+    } else if (status === 403) {
+      showToast(data.detail || '無權限儲存', 'error')
+    } else if (status === 404) {
+      showToast('PO 不存在', 'error')
+    } else if (status === 422) {
+      showToast(data.detail || '此 PO 狀態不允許儲存', 'warning')
+    } else {
+      showToast(data.error || '儲存失敗', 'error')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+// ============================================================
+// 冲突解决
+// ============================================================
+function pickResolution(poLineId, choice) {
+  conflictModal.resolutions[poLineId] = choice
+}
+
+async function applyResolutions() {
+  if (saving.value) return
+  const acceptIds = []
+  const keepRows = []
+  for (const c of conflictModal.conflicts) {
+    const choice = conflictModal.resolutions[c.po_line_id]
+    const sku = Object.keys(lineMeta).find(s => lineMeta[s].po_line_id === c.po_line_id)
+    if (!sku) continue
+
+    if (choice === 'accept') {
+      // 接受服务器版本 — 把 server_data 还原到 pk[sku]
+      const srv = c.server_data || {}
+      pk[sku] = {
+        dates: Array.isArray(srv.dates) ? srv.dates.slice() : [],
+        a: srv.a || {},
+      }
+      // 如果 server_data 含 remarks_handled 也接受
+      if (srv.remarks_handled) remarksStatus[sku] = srv.remarks_handled
+      lineMeta[sku].last_modified_at = c.modified_at
+      dirtySkus.delete(sku)
+      acceptIds.push(c.po_line_id)
+    } else {
+      // 保留我的 — 更新 last_modified_at 准备重提
+      lineMeta[sku].last_modified_at = c.modified_at
+      keepRows.push(buildPayloadRow(sku))
+    }
+  }
+
+  conflictModal.open = false
+  conflictModal.conflicts = []
+  conflictModal.resolutions = {}
+
+  if (keepRows.length === 0) {
+    if (acceptIds.length) showToast(`已採用 ${acceptIds.length} 項的伺服器版本`, 'success')
+    return
+  }
+
+  saving.value = true
+  try {
+    const res = await poApi.saveCounting(curPO.value.po, { rows: keepRows })
+    if (res.ok) {
+      const newTs = res.server_time
+      ;(res.saved || []).forEach(id => {
+        const sku = Object.keys(lineMeta).find(s => lineMeta[s].po_line_id === id)
+        if (sku) {
+          dirtySkus.delete(sku)
+          if (newTs) lineMeta[sku].last_modified_at = newTs
+        }
+      })
+      showToast(`✅ 已覆蓋儲存 ${(res.saved || []).length} 項`, 'success')
+    }
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    if (err.response?.status === 207) {
+      showToast('⚠️ 數據又被改了，請刷新後重試', 'error')
+    } else {
+      showToast(err.response?.data?.error || '儲存失敗', 'error')
+    }
+  } finally {
+    saving.value = false
+  }
+}
+
+function cancelConflictModal() {
+  conflictModal.open = false
+  conflictModal.conflicts = []
+  conflictModal.resolutions = {}
+}
+
+// ============================================================
+// 单元格状态
+// ============================================================
 function inputClass(qty, req) {
   if (!qty) return ''
   return qty === req ? 'iok' : 'ibad'
@@ -281,21 +543,47 @@ function whTotalDisplay(allocId, wh, req) {
 
 function allocRemaining(it, alloc) {
   const aT = whSum(alloc)
-  const aP = whPk(it.sku, alloc.id)
+  const aP = whPk(it.sku, alloc.id, alloc)
   const aR = aT - aP
   let cls = 'text-amber-600'
   if (aR === 0) cls = 'text-green-600'
   else if (aR < 0) cls = 'text-red-600'
   return { remaining: aR, cls }
 }
+
+// ============================================================
+// 路由 / 浏览器离开守卫
+// ============================================================
+function hasDirty() { return curPO.value && dirtySkus.size > 0 }
+
+onBeforeRouteLeave((to, from, next) => {
+  if (hasDirty() && !confirm(`有 ${dirtySkus.size} 項未儲存的修改，離開將丟失。確定？`)) {
+    next(false)
+  } else {
+    next()
+  }
+})
+
+function _onBeforeUnload(e) {
+  if (!hasDirty()) return
+  e.preventDefault()
+  e.returnValue = ''
+}
+
+onMounted(() => {
+  window.addEventListener('beforeunload', _onBeforeUnload)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', _onBeforeUnload)
+})
 </script>
 
 <template>
   <!-- ===== 状态 1：PO 输入 ===== -->
-  <!-- 这套页面（M3a/M3c）是给收货员手机/平板用的；在 PC 上用 max-w 限宽避免拉得太空旷 -->
   <div v-if="!curPO" class="m3a flex flex-col justify-center items-center h-full p-6 sm:p-10">
     <div class="text-4xl sm:text-5xl mb-3">📦</div>
-    <h2 class="text-lg sm:text-xl font-extrabold mb-5 sm:mb-6">PO 點貨系統</h2>
+    <h2 class="text-lg sm:text-xl font-extrabold mb-2">PO 點貨平台</h2>
+    <div class="text-xs text-gray-400 mb-5 sm:mb-6">輸入 Odoo PO 單號開始點貨</div>
     <div class="w-full max-w-sm">
       <input
         v-model="poInput"
@@ -304,13 +592,13 @@ function allocRemaining(it, alloc) {
         style="font-size:18px;"
         placeholder="PO Number"
         autocomplete="off"
-        inputmode="numeric"
+        :disabled="loading"
       />
-      <button class="g-btn g-btn-teal w-full" style="padding:14px;" @click="loadPO">
-        載入 PO
+      <button class="g-btn g-btn-teal w-full" style="padding:14px;"
+              :disabled="loading" @click="loadPO">
+        {{ loading ? '載入中…' : '載入 PO' }}
       </button>
     </div>
-    <div class="text-center mt-4 text-xs text-gray-300">Demo — 輸入 12345</div>
   </div>
 
   <!-- ===== 状态 2：SKU 清单 ===== -->
@@ -319,6 +607,16 @@ function allocRemaining(it, alloc) {
       <button class="hdr-back" @click="backToPO">‹</button>
       <h1>SKU 清單</h1>
       <RefreshButton :on-refresh="refreshNow" />
+      <!-- 顶部 saveAll 按钮 — dirty > 0 才高亮 -->
+      <button
+        v-if="dirtySkus.size > 0"
+        class="g-btn g-btn-teal"
+        style="padding:7px 14px;font-size:12px;margin-left:6px;"
+        :disabled="saving"
+        @click="saveAll"
+      >
+        {{ saving ? '⏳' : `💾 儲存(${dirtySkus.size})` }}
+      </button>
     </div>
     <div class="flex justify-between mb-2 text-xs text-gray-500 font-semibold">
       <span>PO: {{ curPO.po }}</span>
@@ -353,6 +651,7 @@ function allocRemaining(it, alloc) {
       v-for="it in curPO.items"
       :key="it.sku"
       class="sku-item"
+      :class="dirtySkus.has(it.sku) ? 'sku-item-dirty' : ''"
       @click="openSKU(it.sku)"
     >
       <div>
@@ -363,10 +662,15 @@ function allocRemaining(it, alloc) {
             class="inline-block text-[10px] font-extrabold px-2 py-0.5 rounded-xl ml-1"
             style="background:#EDE7F6;color:#7C4DFF;"
           >📦 含COMBO</span>
+          <span
+            v-if="dirtySkus.has(it.sku)"
+            class="inline-block text-[10px] font-extrabold px-2 py-0.5 rounded-xl ml-1"
+            style="background:#fef3c7;color:#92400e;"
+          >● 未儲存</span>
         </div>
         <div class="text-xs text-gray-400 mt-0.5 flex gap-1.5 flex-wrap">
           <span class="bg-gray-100 px-1.5 py-px rounded">SKU: {{ it.sku }}</span>
-          <span class="bg-gray-100 px-1.5 py-px rounded">箱入: {{ it.perBox }}</span>
+          <span class="bg-gray-100 px-1.5 py-px rounded">箱入: {{ it.perBox || '—' }}</span>
           <span class="bg-gray-100 px-1.5 py-px rounded">共 {{ itemUnits(it) }} 件</span>
         </div>
       </div>
@@ -394,7 +698,7 @@ function allocRemaining(it, alloc) {
       </div>
       <div class="sum-card">
         <div class="text-[10px] text-gray-400">箱入</div>
-        <div class="text-xl font-extrabold" style="color:#E6A23C;">{{ curItem.perBox }}</div>
+        <div class="text-xl font-extrabold" style="color:#E6A23C;">{{ curItem.perBox || '—' }}</div>
       </div>
       <div class="sum-card">
         <div class="text-[10px] text-gray-400">總件數</div>
@@ -403,7 +707,10 @@ function allocRemaining(it, alloc) {
       <div class="sum-card">
         <div class="text-[10px] text-gray-400">總箱數</div>
         <div class="text-xl font-extrabold" style="color:#7C4DFF;">
-          {{ detailStats.tb }}<span v-if="detailStats.br > 0" class="text-xs" style="color:#E6A23C;"> 餘{{ detailStats.br }}</span>
+          <template v-if="(curItem.perBox || 0) > 0">
+            {{ detailStats.tb }}<span v-if="detailStats.br > 0" class="text-xs" style="color:#E6A23C;"> 餘{{ detailStats.br }}</span>
+          </template>
+          <template v-else>—</template>
         </div>
       </div>
     </div>
@@ -521,9 +828,9 @@ function allocRemaining(it, alloc) {
 
       <!-- 无日期模式：单 input -->
       <template v-if="!hasDates">
-        <template v-for="w in WH" :key="w">
+        <template v-for="w in whKeysOf(al)" :key="w">
           <div v-if="(al.warehouses[w] || 0) > 0" class="wr">
-            <span class="text-sm font-bold min-w-[34px]" :style="{ color: WH_COLOR[w] }">{{ w }}</span>
+            <span class="text-sm font-bold min-w-[34px]" :style="{ color: whColor(w) }">{{ w }}</span>
             <span class="text-[15px] font-bold text-gray-300 ml-auto">{{ al.warehouses[w] }}</span>
             <span class="text-gray-300 mx-1">→</span>
             <span class="wr-pk">
@@ -533,7 +840,7 @@ function allocRemaining(it, alloc) {
                 :class="inputClass(curPk.a[al.id][w][''], al.warehouses[w])"
                 :value="curPk.a[al.id][w][''] || ''"
                 placeholder="0"
-                @input="curPk.a[al.id][w][''] = parseInt($event.target.value) || 0"
+                @input="curPk.a[al.id][w][''] = parseInt($event.target.value) || 0; onPkInput(curSKU)"
               />
             </span>
             <span class="w-5.5 text-center">
@@ -566,9 +873,9 @@ function allocRemaining(it, alloc) {
               <div class="w-5.5 shrink-0"></div>
             </div>
             <!-- 各仓库 row -->
-            <template v-for="w in WH" :key="w">
+            <template v-for="w in whKeysOf(al)" :key="w">
               <div v-if="(al.warehouses[w] || 0) > 0" class="flex items-center gap-1.5 px-4 py-1.5 border-b border-gray-50">
-                <div class="w-10 shrink-0 text-sm font-bold" :style="{ color: WH_COLOR[w] }">{{ w }}</div>
+                <div class="w-10 shrink-0 text-sm font-bold" :style="{ color: whColor(w) }">{{ w }}</div>
                 <div class="w-8 shrink-0 text-center text-[15px] font-bold text-gray-300">{{ al.warehouses[w] }}</div>
                 <div class="w-4 shrink-0 text-center text-gray-300">→</div>
                 <div v-for="dt in curPk.dates" :key="dt" class="shrink-0 text-center" style="width:82px;">
@@ -580,7 +887,7 @@ function allocRemaining(it, alloc) {
                     placeholder="0"
                     class="w-full py-1.5 px-1 rounded-lg font-mono font-bold text-[15px] text-center outline-none"
                     style="border:1.5px solid #e0e0e0;"
-                    @input="curPk.a[al.id][w][dt] = parseInt($event.target.value) || 0"
+                    @input="curPk.a[al.id][w][dt] = parseInt($event.target.value) || 0; onPkInput(curSKU)"
                   />
                 </div>
                 <div class="w-4 shrink-0 text-center text-gray-300 font-bold">=</div>
@@ -603,9 +910,18 @@ function allocRemaining(it, alloc) {
 
     <div class="h-18"></div>
 
-    <!-- 保存 sticky — safe-pb 让按钮在 iOS 全面屏不被 home indicator 遮 -->
+    <!-- 保存 sticky — 改成全 PO save（saveAll）— 跟旧 saveDetail 单 SKU 保存不同 -->
     <div class="m3a-bot safe-pb">
-      <button class="g-btn g-btn-teal w-full" style="padding:14px;" @click="saveDetail">💾 儲存</button>
+      <button
+        class="g-btn g-btn-teal w-full"
+        style="padding:14px;"
+        :disabled="saving || dirtySkus.size === 0"
+        @click="saveAll"
+      >
+        <template v-if="saving">⏳ 儲存中…</template>
+        <template v-else-if="dirtySkus.size === 0">💾 儲存（無變更）</template>
+        <template v-else>💾 儲存全部 {{ dirtySkus.size }} 項</template>
+      </button>
     </div>
 
     <!-- Remarks 弹窗 -->
@@ -653,4 +969,65 @@ function allocRemaining(it, alloc) {
       </div>
     </div>
   </div>
+
+  <!-- ===== 冲突 Modal — 跨整页 ===== -->
+  <div v-if="conflictModal.open"
+       class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-200 flex items-center gap-2">
+        <span class="text-2xl">⚠️</span>
+        <div>
+          <h2 class="text-base font-bold text-gray-800">資料衝突 — {{ conflictModal.conflicts.length }} 項被其他用戶更新</h2>
+          <p class="text-xs text-gray-500 mt-0.5">逐項選擇：保留我的修改 / 接受伺服器最新</p>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-auto p-4 space-y-3">
+        <div v-for="c in conflictModal.conflicts" :key="c.po_line_id"
+             class="border border-amber-200 bg-amber-50/40 rounded-lg p-3">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div>
+              <span class="font-mono font-bold text-sm">{{ c.sku }}</span>
+              <span class="text-xs text-gray-500 ml-2">
+                {{ c.modified_by }} · {{ c.modified_at }} 修改
+              </span>
+            </div>
+            <div class="flex gap-1">
+              <button class="px-3 py-1 text-xs font-semibold rounded border"
+                      :class="conflictModal.resolutions[c.po_line_id] === 'keep'
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
+                      @click="pickResolution(c.po_line_id, 'keep')">
+                保留我的
+              </button>
+              <button class="px-3 py-1 text-xs font-semibold rounded border"
+                      :class="conflictModal.resolutions[c.po_line_id] === 'accept'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'"
+                      @click="pickResolution(c.po_line_id, 'accept')">
+                接受伺服器
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-gray-200 flex items-center justify-end gap-2 flex-shrink-0">
+        <button class="px-4 py-2 text-xs font-semibold text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                @click="cancelConflictModal">取消</button>
+        <button class="px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+                :disabled="saving" @click="applyResolutions">
+          {{ saving ? '處理中…' : '確認' }}
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+/* dirty 行高亮 — 灰底 + 左侧黄边 */
+.sku-item-dirty {
+  background: #fffbeb !important;
+  border-left: 3px solid #f59e0b !important;
+}
+</style>
