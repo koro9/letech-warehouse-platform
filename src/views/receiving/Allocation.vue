@@ -24,7 +24,7 @@
  *
  * Excel 导出当前 stub 化（demo 用 xlsx CDN，本项目未加 dep）
  */
-import { computed, reactive, ref, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, reactive, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import * as XLSX from 'xlsx'
 import { po as poApi } from '@/api'
@@ -60,6 +60,47 @@ const dirtyLineIds = reactive(new Set())
 
 // 顶部 + 按钮菜单
 const openMenuIdx = ref(null)
+
+// combo 下拉菜单 — Teleport 到 body 渲染，按按钮坐标定位（避开表格 overflow 裁切）
+// dropdownPos: 视口坐标（用于 position: fixed）
+// dropdownPlacement: 'below' / 'above'（下方放不下时翻到上方）
+const DROPDOWN_W = 288   // 跟 Tailwind w-72 对齐
+const DROPDOWN_H = 240   // 估算高度（标题 + 至多 5 个候选）
+const dropdownPos = ref({ top: 0, left: 0 })
+const dropdownPlacement = ref('below')
+
+// 当前 open 菜单对应的 row 数据（dropdown 渲染需要 row.combo_options）
+const activeRow = computed(() => {
+  if (openMenuIdx.value == null) return null
+  return filteredRows.value.find(r => rowIndex(r) === openMenuIdx.value) || null
+})
+
+// ============================================================
+// 表格底部 spacer — 动态高度让 tfoot 贴近 scroll 容器底部
+// ============================================================
+// 数据少时 thead+rows+tfoot 远小于容器 min-height，会留一大片空白在 tfoot 下面。
+// 用一个 spacer 行把"剩余空间"填掉，让合計行视觉上落到底。
+//
+// 计算约定（粗略估值，跨浏览器/字体允许 ±5px 误差）：
+//   thead + tfoot ≈ 70px 固定开销
+//   每条主数据行 ≈ 38px
+//   combo 子行 ≈ 30px
+// 跟下面 scroll 容器的 min-height: 220px 配套调整 — 改这两个值时记得对齐。
+const TABLE_MIN_H = 220
+const HEAD_FOOT_H = 70
+const DATA_ROW_H = 38
+const COMBO_ROW_H = 30
+const SPACER_MIN = 16
+
+const spacerHeight = computed(() => {
+  const rows = filteredRows.value
+  if (rows.length === 0) return 0
+  let consumed = HEAD_FOOT_H + rows.length * DATA_ROW_H
+  for (const r of rows) {
+    consumed += (r.combos?.length || 0) * COMBO_ROW_H
+  }
+  return Math.max(TABLE_MIN_H - consumed, SPACER_MIN)
+})
 
 // 仓库 autocomplete suggestions（最近一次搜索结果）
 const whSuggestions = ref([])
@@ -281,9 +322,83 @@ function rmCol(i) {
   })
 }
 
-function toggleMenu(ri) {
-  openMenuIdx.value = openMenuIdx.value === ri ? null : ri
+function toggleMenu(ri, btnEl) {
+  if (openMenuIdx.value === ri) {
+    openMenuIdx.value = null
+    return
+  }
+  openMenuIdx.value = ri
+  // nextTick 等 v-if 的 dropdown DOM 出来后（虽然 fixed 定位不依赖 DOM 已挂载，
+  // 但保持惯例统一）。位置用按钮当前 rect 现算。
+  if (btnEl) {
+    nextTick(() => positionDropdown(btnEl))
+  }
 }
+
+function positionDropdown(btnEl) {
+  const rect = btnEl.getBoundingClientRect()
+  const GAP = 4
+  const PAD = 8
+
+  // 水平：dropdown 右边缘对齐到按钮右边缘（跟原 right-2 视觉一致）
+  // 视口边界夹住，避免超出右边
+  let left = rect.right - DROPDOWN_W
+  if (left < PAD) left = PAD
+  if (left + DROPDOWN_W > window.innerWidth - PAD) {
+    left = window.innerWidth - DROPDOWN_W - PAD
+  }
+
+  // 垂直：默认按钮下方；下方空间不够就翻到上方
+  const spaceBelow = window.innerHeight - rect.bottom - PAD
+  let top
+  if (spaceBelow >= DROPDOWN_H) {
+    top = rect.bottom + GAP
+    dropdownPlacement.value = 'below'
+  } else if (rect.top - PAD >= DROPDOWN_H) {
+    top = rect.top - DROPDOWN_H - GAP
+    dropdownPlacement.value = 'above'
+  } else {
+    // 上下都不够（小窗口）— 取较大那侧 + 让浏览器在 dropdown 内部 scroll
+    if (spaceBelow >= rect.top - PAD) {
+      top = rect.bottom + GAP
+      dropdownPlacement.value = 'below'
+    } else {
+      top = PAD
+      dropdownPlacement.value = 'above'
+    }
+  }
+
+  dropdownPos.value = { top, left }
+}
+
+// ============================================================
+// combo 菜单关闭事件 — 仅在 open 时挂监听，避免空跑
+// ============================================================
+function onMenuScroll() { openMenuIdx.value = null }
+function onMenuResize() { openMenuIdx.value = null }
+function onMenuEsc(e) { if (e.key === 'Escape') openMenuIdx.value = null }
+function onMenuOutsideClick(e) {
+  // 点击在按钮自身或 dropdown 内部 → 不关
+  const target = e.target
+  if (!target || !target.closest) return
+  if (target.closest('[data-combo-trigger]') || target.closest('[data-combo-dropdown]')) return
+  openMenuIdx.value = null
+}
+
+watch(openMenuIdx, (val) => {
+  if (val != null) {
+    // capture=true 才能监听到内部 scroll 容器（默认 bubbling 不冒泡 scroll 事件）
+    window.addEventListener('scroll', onMenuScroll, true)
+    window.addEventListener('resize', onMenuResize)
+    window.addEventListener('keydown', onMenuEsc)
+    window.addEventListener('mousedown', onMenuOutsideClick)
+  } else {
+    window.removeEventListener('scroll', onMenuScroll, true)
+    window.removeEventListener('resize', onMenuResize)
+    window.removeEventListener('keydown', onMenuEsc)
+    window.removeEventListener('mousedown', onMenuOutsideClick)
+  }
+})
 
 function addCombo(ri, opt) {
   const r = rows[ri]
@@ -632,6 +747,12 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', _onBeforeUnload)
+  // combo 菜单 listener 清理（防菜单还开着时用户切走路由 → leak）
+  // watch 在 openMenuIdx 不变的情况下不会再触发，所以这里强制 detach
+  window.removeEventListener('scroll', onMenuScroll, true)
+  window.removeEventListener('resize', onMenuResize)
+  window.removeEventListener('keydown', onMenuEsc)
+  window.removeEventListener('mousedown', onMenuOutsideClick)
 })
 </script>
 
@@ -700,9 +821,12 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- 表格 -->
+    <!-- min-height: 220px — 单条数据时表格容器不至于太短。combo 下拉因为已经 -->
+    <!-- Teleport 到 body 渲染（见 script），不再依赖容器高度防裁切，min-height -->
+    <!-- 只用作纯视觉。spacer 行配合此值让 tfoot 贴底（详见 spacerHeight）。  -->
     <div class="flex-1 overflow-auto p-3 sm:p-4">
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div class="overflow-auto" style="max-height: calc(100vh - 220px);">
+        <div class="overflow-auto" style="max-height: calc(100vh - 220px); min-height: 220px;">
           <table class="w-full text-left text-xs border-collapse">
             <thead class="sticky top-0 z-10">
               <tr class="border-b-2 border-gray-200" style="background:#f9fafb;">
@@ -826,40 +950,14 @@ onBeforeUnmount(() => {
                   </td>
                   <td v-if="canAddCol"></td>
 
-                  <!-- 操作 -->
-                  <td class="px-2.5 py-2 text-center relative">
-                    <button class="w-6 h-6 rounded-md text-white border-0 cursor-pointer text-xs disabled:opacity-30"
+                  <!-- 操作 — combo 下拉用 Teleport 渲染到 body，避开表格 overflow 裁切；详见模板末尾 -->
+                  <td class="px-2.5 py-2 text-center">
+                    <button data-combo-trigger
+                            class="w-6 h-6 rounded-md text-white border-0 cursor-pointer text-xs disabled:opacity-30"
                             style="background:#2563eb;"
                             :disabled="!row.combo_options || row.combo_options.length === 0"
                             :title="row.combo_options && row.combo_options.length ? '加組合裝' : '此商品無 BOM 母件'"
-                            @click="toggleMenu(rowIndex(row))">+</button>
-                    <!-- combo 下拉菜单（动态来自后端 combo_options）-->
-                    <div
-                      v-if="openMenuIdx === rowIndex(row)"
-                      class="absolute right-2 top-9 z-20 bg-white border border-gray-200 rounded-lg shadow-xl w-72 overflow-hidden"
-                    >
-                      <div class="px-3 py-2 text-[11px] font-bold text-gray-400" style="background:#f9fafb;border-bottom:1px solid #f3f4f6;">
-                        選擇組合裝（來自 BOM）
-                      </div>
-                      <div v-if="!row.combo_options || row.combo_options.length === 0"
-                           class="px-3 py-3 text-[11px] text-gray-400 text-center">
-                        此商品無關聯 BOM 母件
-                      </div>
-                      <button
-                        v-for="opt in (row.combo_options || [])"
-                        :key="opt.sku"
-                        class="flex justify-between items-center w-full px-3 py-2 text-left text-xs border-0 cursor-pointer bg-white hover:bg-gray-50 disabled:cursor-not-allowed"
-                        :disabled="comboHas(rowIndex(row), opt.sku)"
-                        :class="comboHas(rowIndex(row), opt.sku) ? 'opacity-40' : ''"
-                        @click="addCombo(rowIndex(row), opt)"
-                      >
-                        <span>
-                          <span class="font-mono font-bold">{{ opt.sku }}</span>
-                          <span class="text-gray-500 ml-1">{{ opt.label }}</span>
-                        </span>
-                        <span v-if="comboHas(rowIndex(row), opt.sku)" class="text-emerald-600">✓</span>
-                      </button>
-                    </div>
+                            @click="(e) => toggleMenu(rowIndex(row), e.currentTarget)">+</button>
                   </td>
                 </tr>
 
@@ -896,6 +994,18 @@ onBeforeUnmount(() => {
                   </td>
                 </tr>
               </template>
+              <!-- 透明 spacer 行：动态高度填满容器剩余空间，让 tfoot 贴近底部 -->
+              <!-- 高度由 spacerHeight computed 算出（见 script），跟容器 min-height 配套 -->
+              <tr v-if="filteredRows.length > 0" aria-hidden="true">
+                <td colspan="99"
+                    :style="{
+                      height: spacerHeight + 'px',
+                      border: 'none',
+                      padding: 0,
+                      background: 'transparent',
+                    }"
+                ></td>
+              </tr>
             </tbody>
             <tfoot class="sticky bottom-0 z-10">
               <tr class="font-semibold text-xs" style="background:#f3f4f6;border-top:2px solid #d1d5db;">
@@ -993,5 +1103,48 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <!-- ========================================================== -->
+    <!-- combo 下拉菜单 — Teleport 到 body 渲染                       -->
+    <!-- 用 position:fixed + 按钮坐标定位，跳出表格 overflow 容器    -->
+    <!-- 滚动 / 缩放 / Esc / 外部点击均关闭（见 watch(openMenuIdx))  -->
+    <!-- ========================================================== -->
+    <Teleport to="body">
+      <div
+        v-if="activeRow"
+        data-combo-dropdown
+        class="bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden"
+        :style="{
+          position: 'fixed',
+          top: dropdownPos.top + 'px',
+          left: dropdownPos.left + 'px',
+          width: '288px',
+          zIndex: 60,
+        }"
+      >
+        <div class="px-3 py-2 text-[11px] font-bold text-gray-400"
+             style="background:#f9fafb;border-bottom:1px solid #f3f4f6;">
+          選擇組合裝（來自 BOM）
+        </div>
+        <div v-if="!activeRow.combo_options || activeRow.combo_options.length === 0"
+             class="px-3 py-3 text-[11px] text-gray-400 text-center">
+          此商品無關聯 BOM 母件
+        </div>
+        <button
+          v-for="opt in (activeRow.combo_options || [])"
+          :key="opt.sku"
+          class="flex justify-between items-center w-full px-3 py-2 text-left text-xs border-0 cursor-pointer bg-white hover:bg-gray-50 disabled:cursor-not-allowed"
+          :disabled="comboHas(rowIndex(activeRow), opt.sku)"
+          :class="comboHas(rowIndex(activeRow), opt.sku) ? 'opacity-40' : ''"
+          @click="addCombo(rowIndex(activeRow), opt)"
+        >
+          <span>
+            <span class="font-mono font-bold">{{ opt.sku }}</span>
+            <span class="text-gray-500 ml-1">{{ opt.label }}</span>
+          </span>
+          <span v-if="comboHas(rowIndex(activeRow), opt.sku)" class="text-emerald-600">✓</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

@@ -44,3 +44,73 @@ import http from './http'
 export function listOrders(params = {}) {
   return http.get('/warehouse/orders', { params })
 }
+
+/**
+ * 拿运单的商品明细（拆单弹窗用）
+ *
+ * 后端契约：
+ *   GET /api/warehouse/orders/<item_id>/items
+ *   200 → {
+ *     item_id, waybill, consignment, total_qty,
+ *     lines: [
+ *       { line_id, hktv_sku, internal_sku, product_name, brand, qty }
+ *     ]
+ *   }
+ *   404 order_not_found
+ */
+export function getOrderItems(itemId) {
+  return http.get(`/warehouse/orders/${itemId}/items`)
+}
+
+/**
+ * 拆运单 — 把指定商品的部分数量拆到一张新运单（HKTV API + 本地数据同步）
+ *
+ * 业务复用 Odoo 后端 hktv.split.waybill.wizard：会调 HKTV splitWaybills API、
+ * 创建新 hktv.order.item、改 stock.picking、写 hktv.waybill.change 日志。
+ *
+ * splits: [{ line_id, split_qty }]    仅传 split_qty > 0 的行
+ *
+ * 后端契约：
+ *   POST /api/warehouse/orders/<item_id>/split   Body: { splits: [...] }
+ *   200 → { ok, new_waybill, new_consignment, new_item_id }
+ *   422 split_failed (detail 字段含具体原因 — HKTV API 错 / 规则违反)
+ *   404 order_not_found
+ *
+ * 注意：HKTV API 同步外网调用，可能数百毫秒到数秒，前端需要 spinner / 禁用按钮。
+ */
+export function splitOrder(itemId, splits) {
+  return http.post(`/warehouse/orders/${itemId}/split`, { splits })
+}
+
+/**
+ * 下載運單面單 PDF
+ *
+ * 後端契約：
+ *   GET /api/warehouse/orders/<item_id>/waybill-label
+ *     200 application/pdf  Content-Disposition: attachment
+ *     422 generate_failed (含 detail：HKTV 未配置 / API 失敗 / SKU 缺失等)
+ *     404 order_not_found
+ *
+ * 兩種狀態：
+ *   - 已生成（item.waybill_attachment_ids 非空）→ 直接返回 PDF（即時）
+ *   - 未生成 → 後端調 HKTV printWaybills 同步生成（1-3 秒）
+ *
+ * 前端不關心是哪種，調這個 API 就行 — 後端決定。
+ * 響應較慢時前端應 disable 按鈕 + 顯示 spinner。
+ */
+export async function downloadWaybillLabel(itemId, fallbackFileName) {
+  // axios 拦截器看 content-type ≠ json 时透传整个 response，blob 会落到 .data
+  const blob = await http.get(`/warehouse/orders/${itemId}/waybill-label`, {
+    responseType: 'blob',
+  })
+
+  // 触发浏览器另存
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fallbackFileName || `waybill_${itemId}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}

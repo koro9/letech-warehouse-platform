@@ -21,7 +21,7 @@
  *   前端用 page / page_size，每次切页或筛选都重新拉一次（替换不追加）；
  *   按"搜尋" → currentPage 重置为 1；翻页 → goToPage(p) 直接 load。
  */
-import { ref, computed, onActivated } from 'vue'
+import { ref, reactive, computed, onActivated } from 'vue'
 import { orders as ordersApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 
@@ -137,6 +137,135 @@ onActivated(() => {
   currentPage.value = 1
   load()
 })
+
+// ============================================================
+// 下載面單 — 列表行末「下載/生成面單」按钮
+// ============================================================
+// 两种状态视觉区分：
+//   - o.printed=true  → 蓝色「下載面單」（直接拉已生成的 PDF）
+//   - o.printed=false → 琥珀「生成面單」（后端调 HKTV API 现生成，慢 1-3 秒）
+// 用 Set 跟踪正在下载的 item id，避免用户连点重复请求。
+const downloadingIds = ref(new Set())
+
+async function downloadLabel(o) {
+  if (downloadingIds.value.has(o.id)) return
+  // Set 改动要用 new Set 触发响应式
+  downloadingIds.value = new Set([...downloadingIds.value, o.id])
+  try {
+    const filename = o.waybill ? `waybill_${o.waybill}.pdf` : `waybill_${o.id}.pdf`
+    await ordersApi.downloadWaybillLabel(o.id, filename)
+    // 之前未生成的 → 现在后端已经写了 attachment，更新 row 状态让按钮变蓝
+    if (!o.printed) {
+      o.printed = true
+      showToast('面單已生成並下載', 'success')
+    }
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      const detail = err.response?.data?.detail
+        || err.response?.data?.error
+        || '下載面單失敗'
+      showToast(detail, 'error')
+    }
+  } finally {
+    const next = new Set(downloadingIds.value)
+    next.delete(o.id)
+    downloadingIds.value = next
+  }
+}
+
+// ============================================================
+// 拆單模态 — 列表行末「拆單」按钮入口
+// ============================================================
+// 业务复用 Odoo 后端 hktv.split.waybill.wizard：HKTV splitWaybills API +
+// 建新 hktv.order.item + 改 picking + 写日志。前端只做 UI + 校验。
+const splitModalOpen = ref(false)
+const splitTarget = ref(null)        // 当前选中的运单 row（用作 header 显示）
+const splitItems = ref([])           // 当前运单的商品明细 + split_qty 输入
+const splitLoading = ref(false)      // GET items 中
+const splitSubmitting = ref(false)   // POST split 中（HKTV API 同步调，可能数秒）
+const splitError = ref('')           // 加载或校验错误，整块红字显示
+
+// 已分拆 / 剩餘 — 实时 reactive 计算
+const splitTotalAll = computed(() =>
+  splitItems.value.reduce((s, i) => s + (Number(i.qty) || 0), 0),
+)
+const splitTotalOut = computed(() =>
+  splitItems.value.reduce((s, i) => s + (Number(i.split_qty) || 0), 0),
+)
+const splitTotalRemain = computed(() => splitTotalAll.value - splitTotalOut.value)
+
+// 提交按钮启用条件 — 至少分拆 1 件、不能全部拆完（HKTV 规则要求原单留至少 1 件）、
+// 每行 split_qty 在 [0, qty] 范围内
+const canSubmitSplit = computed(() => {
+  if (splitLoading.value || splitSubmitting.value) return false
+  if (splitItems.value.length === 0) return false
+  if (splitTotalOut.value <= 0) return false
+  if (splitTotalRemain.value <= 0) return false
+  return splitItems.value.every((i) => {
+    const v = Number(i.split_qty)
+    return Number.isFinite(v) && v >= 0 && v <= Number(i.qty)
+  })
+})
+
+async function openSplit(o) {
+  splitTarget.value = o
+  splitModalOpen.value = true
+  splitItems.value = []
+  splitError.value = ''
+  splitLoading.value = true
+  try {
+    const res = await ordersApi.getOrderItems(o.id)
+    splitItems.value = (res.lines || []).map((l) => reactive({
+      ...l,
+      split_qty: 0,
+    }))
+    if (splitItems.value.length === 0) {
+      splitError.value = '此運單沒有商品明細，無法分拆'
+    }
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      splitError.value = err.response?.data?.error === 'order_not_found'
+        ? '找不到此運單'
+        : (err.response?.data?.detail || err.response?.data?.error || '載入商品明細失敗')
+    }
+  } finally {
+    splitLoading.value = false
+  }
+}
+
+function closeSplit() {
+  if (splitSubmitting.value) return  // 提交中不让关
+  splitModalOpen.value = false
+  splitTarget.value = null
+  splitItems.value = []
+  splitError.value = ''
+}
+
+async function confirmSplit() {
+  if (!canSubmitSplit.value) return
+  splitSubmitting.value = true
+  try {
+    const splits = splitItems.value
+      .filter((i) => Number(i.split_qty) > 0)
+      .map((i) => ({ line_id: i.line_id, split_qty: Number(i.split_qty) }))
+    const res = await ordersApi.splitOrder(splitTarget.value.id, splits)
+    showToast(`拆單成功！新運單號：${res.new_waybill || '—'}`, 'success')
+    splitModalOpen.value = false
+    splitTarget.value = null
+    splitItems.value = []
+    splitError.value = ''
+    load()  // 刷新列表显示新拆出来的行
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      const detail = err.response?.data?.detail
+        || err.response?.data?.error
+        || '拆單失敗'
+      showToast(detail, 'error')
+    }
+  } finally {
+    splitSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -219,11 +348,12 @@ onActivated(() => {
             <th>提貨日期</th>
             <th>出庫</th>
             <th>面單</th>
+            <th class="text-center">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!loading && rows.length === 0">
-            <td :colspan="7" class="text-center text-gray-400 py-10">沒有符合條件的運單</td>
+            <td :colspan="8" class="text-center text-gray-400 py-10">沒有符合條件的運單</td>
           </tr>
           <tr v-for="o in rows" :key="o.id">
             <td class="font-semibold">{{ o.waybill || '—' }}</td>
@@ -244,6 +374,28 @@ onActivated(() => {
             <td>
               <span v-if="o.printed" class="g-badge" style="background:#ecfdf5;color:#047857;">已列印</span>
               <span v-else class="text-gray-300">未列印</span>
+            </td>
+            <td class="text-center">
+              <div class="inline-flex items-center gap-1.5">
+                <!-- 下載 / 生成面單 — 两种状态视觉区分 -->
+                <button class="g-row-btn"
+                        :class="o.printed ? 'g-row-btn-blue' : 'g-row-btn-amber'"
+                        :disabled="downloadingIds.has(o.id)"
+                        :title="o.printed ? '下載已生成的面單 PDF' : '調 HKTV API 生成並下載面單'"
+                        @click="downloadLabel(o)">
+                  <span v-if="downloadingIds.has(o.id)"
+                        class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                  <span v-else class="text-[10px]">{{ o.printed ? '📥' : '⚡' }}</span>
+                  <span>{{ downloadingIds.has(o.id)
+                            ? '處理中…'
+                            : (o.printed ? '下載面單' : '生成面單') }}</span>
+                </button>
+                <!-- 拆單 -->
+                <button class="g-row-btn g-row-btn-teal" @click="openSplit(o)">
+                  <span class="text-[10px]">✂</span>
+                  <span>拆單</span>
+                </button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -274,7 +426,7 @@ onActivated(() => {
             <div><span class="text-gray-400">提貨日期：</span>{{ o.pickup_date || '—' }}</div>
           </div>
           <!-- 状态徽章组 -->
-          <div class="flex items-center gap-1.5 flex-wrap">
+          <div class="flex items-center gap-1.5 flex-wrap mb-2">
             <span class="text-[11px] text-gray-400">出庫</span>
             <span v-if="o.outbound_stage" class="g-badge" :style="outboundStyle(o.outbound_stage)">
               {{ o.outbound_label }}
@@ -283,6 +435,24 @@ onActivated(() => {
             <span class="text-[11px] text-gray-400 ml-2">面單</span>
             <span v-if="o.printed" class="g-badge" style="background:#ecfdf5;color:#047857;">已列印</span>
             <span v-else class="g-badge" style="background:#f3f4f6;color:#9ca3af;">未列印</span>
+          </div>
+          <!-- 操作按钮组 -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button class="g-row-btn flex-shrink-0"
+                    :class="o.printed ? 'g-row-btn-blue' : 'g-row-btn-amber'"
+                    :disabled="downloadingIds.has(o.id)"
+                    @click="downloadLabel(o)">
+              <span v-if="downloadingIds.has(o.id)"
+                    class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+              <span v-else class="text-[10px]">{{ o.printed ? '📥' : '⚡' }}</span>
+              <span>{{ downloadingIds.has(o.id)
+                        ? '處理中…'
+                        : (o.printed ? '下載面單' : '生成面單') }}</span>
+            </button>
+            <button class="g-row-btn g-row-btn-teal flex-shrink-0" @click="openSplit(o)">
+              <span class="text-[10px]">✂</span>
+              <span>拆單</span>
+            </button>
           </div>
         </div>
       </div>
@@ -308,6 +478,150 @@ onActivated(() => {
           :disabled="!hasNext || loading"
           @click="goToPage(currentPage + 1)"
         >下一頁</button>
+      </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!-- 拆單模态对话框                                              -->
+    <!-- 复用 Odoo 后端 hktv.split.waybill.wizard 业务逻辑          -->
+    <!-- 视觉参考 HKTV Merchant 后台拆單弹窗，但去掉图片列、加内部   -->
+    <!-- SKU / 品牌列让信息更密集                                    -->
+    <!-- ========================================================== -->
+    <div
+      v-if="splitModalOpen"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style="background:rgba(15,23,42,0.55);"
+      @click.self="closeSplit"
+    >
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
+        <!-- 头 -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <div class="text-lg font-bold text-gray-800">分拆運單</div>
+            <div class="text-xs text-gray-500 mt-1.5">
+              運單編號:
+              <span class="font-mono font-semibold text-gray-700">{{ splitTarget?.waybill || '—' }}</span>
+              <span class="mx-2 text-gray-300">·</span>
+              訂單編號:
+              <span class="font-mono text-gray-600">{{ splitTarget?.order_no || '—' }}</span>
+            </div>
+          </div>
+          <button
+            class="text-gray-400 hover:text-gray-600 text-2xl leading-none px-2 disabled:opacity-30"
+            :disabled="splitSubmitting"
+            @click="closeSplit"
+          >&times;</button>
+        </div>
+
+        <!-- 提示信息（HKTV 拆單规则）-->
+        <div class="mx-6 mt-4 p-3.5 rounded-lg text-xs leading-relaxed text-amber-900"
+             style="background:#fffbeb;border:1px solid #fde68a;">
+          請在需要分拆出來的商品欄輸入分拆的數量，然後按「確定」，系統會生成一張新的運單並具獨立的運單編號。
+          <span class="font-bold">請注意一旦分拆了新的運單，將無法復原。</span>
+        </div>
+
+        <!-- 主体 -->
+        <div class="px-6 py-4 overflow-y-auto flex-1">
+          <!-- loading -->
+          <div v-if="splitLoading" class="text-center text-gray-400 py-16 text-sm">
+            <span class="inline-block w-4 h-4 border-2 border-gray-300 border-t-teal rounded-full animate-spin mr-2 align-middle"></span>
+            載入商品明細…
+          </div>
+
+          <!-- 错误 -->
+          <div v-else-if="splitError"
+               class="text-center text-rose-600 py-12 text-sm"
+               style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">
+            {{ splitError }}
+          </div>
+
+          <!-- 表格 -->
+          <template v-else>
+            <table class="g-table">
+              <thead>
+                <tr>
+                  <th style="width:180px;">SKU</th>
+                  <th>商品名稱</th>
+                  <th style="width:120px;text-align:right;">原本數量</th>
+                  <th style="width:180px;text-align:right;">分拆數量</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in splitItems" :key="item.line_id">
+                  <td class="font-mono text-xs font-semibold text-gray-700">
+                    {{ item.sku || '—' }}
+                  </td>
+                  <td>
+                    <div class="text-sm text-gray-800 leading-snug">
+                      {{ item.product_name || '—' }}
+                    </div>
+                    <div v-if="item.brand" class="text-[11px] text-gray-400 mt-0.5">
+                      {{ item.brand }}
+                    </div>
+                  </td>
+                  <td class="text-right">
+                    <span class="font-bold text-gray-700">{{ item.qty }}</span>
+                  </td>
+                  <td class="text-right">
+                    <input
+                      v-model.number="item.split_qty"
+                      type="number"
+                      min="0"
+                      :max="item.qty"
+                      :disabled="splitSubmitting"
+                      class="g-input"
+                      style="width:140px;text-align:right;padding:7px 12px;height:38px;font-size:13px;font-weight:600;"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 实时统计 -->
+            <div class="mt-4 flex items-center justify-end gap-4 text-xs">
+              <div class="text-gray-500">
+                已分拆:
+                <span class="font-bold text-teal-700 ml-1"
+                      :style="splitTotalOut > 0 ? 'color:#0f766e;' : 'color:#9ca3af;'">
+                  {{ splitTotalOut }}
+                </span>
+                件
+              </div>
+              <div class="text-gray-300">|</div>
+              <div class="text-gray-500">
+                原運單剩餘:
+                <span class="font-bold ml-1"
+                      :style="splitTotalRemain > 0 ? 'color:#374151;' : 'color:#dc2626;'">
+                  {{ splitTotalRemain }}
+                </span>
+                件
+              </div>
+              <div v-if="splitTotalRemain <= 0 && splitTotalOut > 0"
+                   class="text-rose-600 font-semibold">
+                ⚠ 必須保留至少 1 件在原運單
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- 底部按钮 -->
+        <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+          <button
+            class="g-btn"
+            style="background:#f3f4f6;color:#4b5563;padding:10px 28px;"
+            :disabled="splitSubmitting"
+            @click="closeSplit"
+          >取 消</button>
+          <button
+            class="g-btn g-btn-teal"
+            style="padding:10px 28px;"
+            :disabled="!canSubmitSplit"
+            @click="confirmSplit"
+          >
+            <span v-if="splitSubmitting" class="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5 align-middle"></span>
+            {{ splitSubmitting ? '處理中…' : '確 定' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

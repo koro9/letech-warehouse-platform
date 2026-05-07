@@ -131,6 +131,56 @@
     cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
   }
 
+  /* 列表行内动作按钮（与 .g-btn 同语言但更紧凑，给表格 / 卡片末尾的"操作"列用） */
+  /* 默认柔和淡色 → hover 切到品牌实色 + 抬升阴影，跟 .g-btn 的 hover 节奏一致 */
+  .g-row-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 12px; font-size: 12px; font-weight: 600;
+    border-radius: 8px; cursor: pointer; white-space: nowrap;
+    transition: all .15s; line-height: 1;
+  }
+  .g-row-btn-teal {
+    background: rgba(107,171,158,0.10); color: #4f8a7e;
+    border: 1px solid rgba(107,171,158,0.35);
+  }
+  .g-row-btn-teal:hover {
+    background: #6BAB9E; color: #fff; border-color: #6BAB9E;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(107,171,158,0.40);
+  }
+  .g-row-btn-teal:active {
+    transform: translateY(0); box-shadow: none;
+  }
+
+  /* 蓝色 — 信息类操作（如下载已有面单） */
+  .g-row-btn-blue {
+    background: rgba(59,130,246,0.08); color: #1d4ed8;
+    border: 1px solid rgba(59,130,246,0.30);
+  }
+  .g-row-btn-blue:hover {
+    background: #3b82f6; color: #fff; border-color: #3b82f6;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(59,130,246,0.35);
+  }
+  .g-row-btn-blue:active { transform: translateY(0); box-shadow: none; }
+
+  /* 琥珀 — "需要生成"动作（HKTV API 调用，慢一点） */
+  .g-row-btn-amber {
+    background: rgba(245,158,11,0.10); color: #b45309;
+    border: 1px solid rgba(245,158,11,0.35);
+  }
+  .g-row-btn-amber:hover {
+    background: #f59e0b; color: #fff; border-color: #f59e0b;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(245,158,11,0.40);
+  }
+  .g-row-btn-amber:active { transform: translateY(0); box-shadow: none; }
+
+  .g-row-btn:disabled {
+    opacity: 0.5; cursor: not-allowed;
+    transform: none !important; box-shadow: none !important;
+  }
+
   /* Toast (全局) */
   .shared-toast {
     position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);

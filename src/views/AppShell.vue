@@ -70,7 +70,9 @@ const sidebars = {
     { name: 'home',      label: '儀表板',     icon: '📊' },
     { name: 'outbound',  label: '出庫',       icon: '📤' },
     { name: 'shipping',  label: '面單',       icon: '🖨️' },
-    { name: 'split',     label: '拆單',       icon: '✂️' },
+    // 拆單菜单已下线 — 入口改在「運單」列表行末按钮触发（参见 Orders.vue）
+    // 路由 /split 暂时保留但已无入口，后续需要彻底删除时一起处理
+    // { name: 'split',     label: '拆單',       icon: '✂️' },
     { name: 'labels',    label: '標籤',       icon: '🏷️' },
     { name: 'orders',    label: '運單',       icon: '📋' },
     // 庫存對比暂时隐藏（路由和组件保留，未来恢复时把这行解开即可）
