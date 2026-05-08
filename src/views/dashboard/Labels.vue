@@ -2,78 +2,57 @@
 /**
  * 商品標籤 — 出货作业中心 / Dashboard 系统
  *
- * 业务：
- *   1. 仓库主管首次配置 / 月度更新：上傳 Excel 主數據（整表替換）
- *      → POST /api/warehouse/labels/master/upload
- *      → 後端 TRUNCATE + 批量 INSERT，事务原子，員工掃碼不會看到空表
+ * 业务流（重写后）：
+ *   1. 標籤主數據改在 Odoo 後台維護（CRUD）— Inventory → WMS → Label Master
+ *      上傳 Excel 路徑保留但移出 WMS UI（後台 wizard 觸發）
  *
- *   2. 員工掃 barcode → API GET /labels/lookup → 拿 product + master_data
- *      → 前端固定渲染 2 張卡片：
- *         a) 條碼標籤（任何商品都打，用 product 數據）
- *         b) 營養標籤（master_data.render_type 4 选 1：食品/保健/特殊/普通）
- *      → master_data 為 null 時只顯示條碼標籤
+ *   2. 員工掃 barcode → API GET /labels/lookup → 拿 product + labels[]
+ *      labels 数组按业务规则返回 1-2 张：
+ *        - food_label 主标签
+ *        - jelly_warning 附加警告（仅 master.has_jelly_warning=True 时）
+ *        - 或单独 health_food / special / ordinary / extinguisher
  *
- *   3. 員工選列印份數 → 點列印 → window.print() 沿用旧系统的 @page size 控制
+ *   3. 員工選列印份數 → 點「列印全部」→ 一次 print job 出 N×labels.length 张
+ *      (多页通过 CSS page-break-after 控制)
  *
- * 數據架構演進：
- *   - 旧版：localStorage 存 7MB Excel，每人一份，刷新可能爆配額
- *   - 现在：上傳到 le.label.item.master 表，所有員工共享，按 barcode lazy fetch
+ * 跟旧版差异：
+ *   - 去掉独立 barcode 标签卡片（旧系统 label.py 只有营养类标签，barcode 不单独）
+ *   - 去掉 Excel 上传 UI（搬到 Odoo 后台维护）
+ *   - 标签尺寸 70×50mm（跟旧 PDF 严格对齐，从 100×70/210×150 改）
+ *   - 支持 jelly 双张连打（food + warning）
+ *   - 支持 extinguisher 单张
  */
-import { ref, computed, onActivated, nextTick } from 'vue'
+import { ref, onActivated, nextTick } from 'vue'
 import { labels as labelsApi } from '@/api'
-import { useAuthStore } from '@/stores/auth'
 import { showToast } from '@/composables/useToast'
 import {
-  renderBarcode, renderNutrition,
-  printBarcodeLabel, printNutritionLabel,
-  BARCODE_LABEL_META, nutritionLabelMeta,
+  renderLabelEntry,
+  printLabels,
+  labelEntryMeta,
 } from '@/utils/labelRenderers'
-
-const auth = useAuthStore()
-
-// 上传权限：仅 internal 用户能上传主数据（kiosk 上传会 403）
-const canUpload = computed(() => auth.isInternal)
 
 // ============================================================
 // 状态
 // ============================================================
-// 商品 + 主数据查询
 const barcodeInput = ref('')
 const inputEl = ref(null)
 const loading = ref(false)
-const product = ref(null)        // { sku, barcode, name_zh, name_en, brand, ... }
-const masterData = ref(null)     // { render_type, barcode, ingredients, energy, ... } | null
+const product = ref(null)        // { sku, barcode, name_zh, name_en, brand }
+const labels = ref([])           // [{ render_type, data }, ...]
 const errorMsg = ref('')
 
-// 每个 label 的列印数量（key: 'barcode' | render_type）
-const printQty = ref({ barcode: 1, nutrition: 1 })
+// 整组打印份数（每份 = labels 数组所有张一起打）
+const printQty = ref(1)
+const printing = ref(false)
 
-// 上传状态
-const status = ref({
-  count: 0,
-  last_upload_time: '',
-  last_upload_by: '',
-  last_upload_file: '',
-})
-const uploading = ref(false)
-const uploadProgress = ref(0)
-const fileInputEl = ref(null)
+// 主数据状态显示
+const status = ref({ count: 0, last_upload_time: '', last_upload_by: '' })
 
 // 最近扫过 — 快速重选
 const recentBarcodes = ref([])
 
 // ============================================================
-// 标签卡片元数据
-// ============================================================
-const barcodeMeta = BARCODE_LABEL_META  // { code, name, size_width, size_height }
-
-const nutritionMeta = computed(() => {
-  if (!masterData.value) return null
-  return nutritionLabelMeta(masterData.value.render_type)
-})
-
-// ============================================================
-// 启动 / 切回页面 — 拉状态
+// 启动 / 切回页面
 // ============================================================
 async function loadStatus() {
   try {
@@ -91,67 +70,6 @@ onActivated(() => {
 })
 
 // ============================================================
-// 上传 Excel — destructive overwrite
-// ============================================================
-function triggerUpload() {
-  if (!canUpload.value) {
-    showToast('僅內部員工可上傳主數據', 'error')
-    return
-  }
-  fileInputEl.value?.click()
-}
-
-async function onFileChange(e) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  // 清掉 value 让同一文件重选还能触发
-  e.target.value = ''
-
-  // 决策性 confirm — 这是销毁性操作
-  const currentCount = status.value.count || 0
-  const msg = currentCount > 0
-    ? `此操作將清空現有 ${currentCount} 條標籤主數據，並用「${file.name}」的內容替換。\n\n確定繼續嗎？`
-    : `將上傳「${file.name}」作為標籤主數據。\n\n確定嗎？`
-  if (!confirm(msg)) return
-
-  uploading.value = true
-  uploadProgress.value = 0
-  try {
-    const res = await labelsApi.uploadMaster(file, (p) => {
-      uploadProgress.value = p
-    })
-    const breakdown = res.by_render_type || {}
-    const summary = [
-      `📦 ${res.total} 條`,
-      `🍱 食品 ${breakdown.food_label || 0}`,
-      `💊 保健 ${breakdown.health_food || 0}`,
-      `⚠️ 特殊 ${breakdown.special_label || 0}`,
-      `📋 普通 ${breakdown.ordinary_label || 0}`,
-    ].join(' · ')
-    showToast(`✅ 已替換為 ${summary}（${(res.duration_ms / 1000).toFixed(1)}s）`, 'success')
-    await loadStatus()
-  } catch (err) {
-    if (err.handledByInterceptor) return
-    const code = err.response?.data?.error
-    let msg = err.response?.data?.detail || err.response?.data?.error || '上傳失敗'
-    if (code === 'not_authorized') msg = '僅內部員工可上傳主數據'
-    else if (code === 'upload_in_progress') msg = '⚙️ 其他用戶正在上傳，請稍後'
-    else if (code === 'missing_barcode_column') msg = 'Excel 缺少 Barcode 列'
-    else if (code === 'no_valid_rows') msg = 'Excel 沒有任何有效數據（Barcode 全為空）'
-    else if (code === 'parse_failed') msg = 'Excel 解析失敗，請檢查文件格式'
-    showToast(msg, 'error')
-  } finally {
-    uploading.value = false
-    uploadProgress.value = 0
-  }
-}
-
-const lastUploadDisplay = computed(() => {
-  if (!status.value.last_upload_time) return '從未上傳'
-  return status.value.last_upload_time
-})
-
-// ============================================================
 // 扫码 / 查商品
 // ============================================================
 async function lookup() {
@@ -160,12 +78,17 @@ async function lookup() {
   loading.value = true
   errorMsg.value = ''
   product.value = null
-  masterData.value = null
+  labels.value = []
   try {
     const res = await labelsApi.lookupByBarcode(bc)
     product.value = res.product
-    masterData.value = res.master_data || null
-    printQty.value = { barcode: 1, nutrition: 1 }
+    labels.value = res.labels || []
+    printQty.value = 1
+
+    if (!labels.value.length && product.value) {
+      // 商品有但主数据空 — 提示去 Odoo 后台补
+      errorMsg.value = '此商品在主數據中無記錄，無法生成標籤。請在 Odoo → Inventory → WMS → Label Master 補錄。'
+    }
 
     // 加入最近扫过历史
     const sku = res.product?.sku || bc
@@ -198,88 +121,69 @@ function reuseRecent(item) {
 
 function reset() {
   product.value = null
-  masterData.value = null
-  printQty.value = { barcode: 1, nutrition: 1 }
+  labels.value = []
+  printQty.value = 1
   errorMsg.value = ''
   barcodeInput.value = ''
   nextTick(() => inputEl.value?.focus())
 }
 
 // ============================================================
-// 列印 — 调 renderers 模块
+// 列印 — 单按钮一次出全套（labels[] × qty 张）
 // ============================================================
-const barcodePreviewHtml = computed(() => {
-  if (!product.value) return ''
-  return renderBarcode(product.value).html
-})
-
-const nutritionPreviewHtml = computed(() => {
-  if (!masterData.value) return ''
-  return renderNutrition(masterData.value).html
-})
-
-function doPrintBarcode() {
-  if (!product.value) return
-  const qty = Math.max(1, parseInt(printQty.value.barcode) || 1)
-  printBarcodeLabel(product.value, qty)
+function doPrint() {
+  if (!labels.value.length) return
+  const qty = Math.max(1, parseInt(printQty.value) || 1)
+  printing.value = true
+  try {
+    printLabels(labels.value, qty)
+  } catch (err) {
+    console.error(err)
+    showToast('列印失敗', 'error')
+  } finally {
+    // 列印 dialog 是异步弹的，500ms 后解锁按钮（避免连点）
+    setTimeout(() => { printing.value = false }, 500)
+  }
 }
 
-function doPrintNutrition() {
-  if (!masterData.value) return
-  const qty = Math.max(1, parseInt(printQty.value.nutrition) || 1)
-  printNutritionLabel(masterData.value, qty)
+function spinQty(delta) {
+  const cur = parseInt(printQty.value) || 1
+  printQty.value = Math.max(1, cur + delta)
 }
 
-function spinQty(key, delta) {
-  const cur = parseInt(printQty.value[key]) || 1
-  printQty.value[key] = Math.max(1, cur + delta)
+// ============================================================
+// 预览渲染（缩放显示）
+// ============================================================
+function previewHtml(entry) {
+  return renderLabelEntry(entry).html
+}
+
+function previewMeta(renderType) {
+  return labelEntryMeta(renderType)
 }
 </script>
 
 <template>
   <div class="p-4 sm:p-6 lg:p-10 max-w-4xl mx-auto">
-    <!-- ========== 顶部：Excel 上传区 ========== -->
-    <div class="g-card p-4 mb-5 sm:mb-6 bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-100">
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <span class="text-2xl flex-shrink-0">📤</span>
-          <div class="min-w-0">
-            <div class="text-sm font-bold text-gray-800">標籤主數據</div>
-            <div class="text-xs text-gray-500 mt-0.5">
-              <span v-if="status.count > 0">
-                共 <span class="font-semibold text-blue-600">{{ status.count }}</span> 條
-                ｜ {{ lastUploadDisplay }}
-                <span v-if="status.last_upload_by" class="text-gray-400">· {{ status.last_upload_by }}</span>
-                <span v-if="status.last_upload_file" class="text-gray-400 hidden sm:inline">· {{ status.last_upload_file }}</span>
-              </span>
-              <span v-else class="text-amber-600">尚未上傳 — 員工掃碼後僅能列印條碼標籤</span>
-            </div>
-          </div>
+
+    <!-- ========== 顶部：主數據狀態 + 後台跳轉 ========== -->
+    <div class="g-card p-3 mb-5 sm:mb-6 bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-100">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-2.5 min-w-0 text-xs">
+          <span class="text-lg flex-shrink-0">📋</span>
+          <span class="text-gray-600">
+            標籤主數據共
+            <span class="font-bold text-blue-600">{{ status.count }}</span>
+            條
+          </span>
+          <span v-if="status.last_upload_time" class="text-gray-400">
+            · 最後更新 {{ status.last_upload_time }}
+          </span>
         </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <input
-            ref="fileInputEl"
-            type="file"
-            accept=".xlsx,.xlsm"
-            class="hidden"
-            @change="onFileChange"
-          />
-          <button
-            class="g-btn g-btn-blue"
-            style="padding:8px 18px;font-size:13px;"
-            :disabled="!canUpload || uploading"
-            :title="canUpload ? '' : '僅內部員工可上傳'"
-            @click="triggerUpload"
-          >
-            <span v-if="uploading">⬆️ 上傳中… {{ uploadProgress }}%</span>
-            <span v-else-if="status.count > 0">🔄 重新上傳</span>
-            <span v-else>📂 上傳 Excel</span>
-          </button>
+        <div class="text-[11px] text-gray-500">
+          維護：Odoo 後台 →
+          <span class="font-mono text-blue-600">Inventory → WMS → Label Master</span>
         </div>
-      </div>
-      <!-- 上传进度条 -->
-      <div v-if="uploading" class="mt-3 h-1 bg-blue-100 rounded-full overflow-hidden">
-        <div class="h-full bg-blue-500 transition-all duration-300" :style="{ width: uploadProgress + '%' }"></div>
       </div>
     </div>
 
@@ -304,19 +208,16 @@ function spinQty(key, delta) {
       </button>
     </div>
 
-    <!-- 错误 -->
-    <div v-if="errorMsg" class="g-card p-5 sm:p-6 mb-5 border-l-4 border-red-400 bg-red-50">
+    <!-- 错误提示 -->
+    <div v-if="errorMsg" class="g-card p-4 mb-5 border-l-4 border-red-400 bg-red-50">
       <div class="flex items-start gap-3">
         <span class="text-xl">⚠️</span>
-        <div class="flex-1">
-          <div class="text-sm font-bold text-red-700 mb-1">{{ errorMsg }}</div>
-        </div>
+        <div class="text-sm text-red-700">{{ errorMsg }}</div>
       </div>
     </div>
 
-    <!-- ========== 商品 + 标签卡片 ========== -->
-    <div v-if="product">
-      <!-- 商品基本信息 -->
+    <!-- ========== 商品基本信息 ========== -->
+    <div v-if="product && labels.length">
       <div class="g-card p-4 sm:p-5 mb-5 border-l-4 border-teal-400">
         <div class="flex items-baseline gap-3 flex-wrap">
           <h2 class="text-lg sm:text-xl font-bold text-gray-800">{{ product.name_zh || '—' }}</h2>
@@ -329,81 +230,68 @@ function spinQty(key, delta) {
           <span v-if="product.brand" class="text-gray-300">·</span>
           <span v-if="product.brand">{{ product.brand }}</span>
         </div>
-        <div v-if="!masterData" class="mt-3 text-xs text-amber-600 flex items-center gap-1">
-          <span>⚠️</span>
-          <span>此商品在主數據中無記錄，僅可列印條碼標籤</span>
-        </div>
       </div>
 
-      <!-- 2 张固定卡片：barcode + nutrition (如有) -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        <!-- 卡片 1：條碼標籤（永远显示）-->
-        <div class="g-card overflow-hidden">
+      <!-- ========== 标签预览卡片（1-2 张）========== -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+        <div
+          v-for="(entry, idx) in labels"
+          :key="idx"
+          class="g-card overflow-hidden"
+        >
           <div class="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
             <div>
-              <div class="text-sm font-bold text-gray-800">{{ barcodeMeta.name }}</div>
-              <div class="text-xs text-gray-400 mt-0.5">
-                {{ barcodeMeta.size_width }}×{{ barcodeMeta.size_height }}mm · barcode
+              <div class="text-sm font-bold text-gray-800">
+                {{ idx + 1 }}. {{ previewMeta(entry.render_type).name }}
               </div>
-            </div>
-          </div>
-          <!-- 預覽 -->
-          <div class="p-3 bg-white">
-            <div class="border border-dashed border-gray-200 rounded p-2 overflow-hidden bg-gray-50"
-                 style="max-height:300px;">
-              <div v-html="barcodePreviewHtml"
-                   style="position:relative; transform:scale(0.4); transform-origin:top left; width:250%;"></div>
-            </div>
-          </div>
-          <!-- 数量 + 列印 -->
-          <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between flex-wrap gap-3">
-            <div class="g-spinner">
-              <input :value="printQty.barcode" type="number" min="1"
-                     @input="printQty.barcode = parseInt($event.target.value) || 1" />
-              <div class="sp-btns">
-                <button @click="spinQty('barcode', 1)" type="button">▲</button>
-                <button @click="spinQty('barcode', -1)" type="button">▼</button>
-              </div>
-            </div>
-            <button class="g-btn g-btn-pink" style="padding:8px 22px;font-size:13px;" @click="doPrintBarcode">
-              🖨️ 列印
-            </button>
-          </div>
-        </div>
-
-        <!-- 卡片 2：營養標籤（master_data 存在时才显示）-->
-        <div v-if="masterData && nutritionMeta" class="g-card overflow-hidden">
-          <div class="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <div class="text-sm font-bold text-gray-800">{{ nutritionMeta.name }}</div>
               <div class="text-xs text-gray-400 mt-0.5">
-                {{ nutritionMeta.size_width }}×{{ nutritionMeta.size_height }}mm · {{ masterData.render_type }}
+                70×50mm · {{ entry.render_type }}
               </div>
             </div>
             <span class="text-[10px] px-2 py-0.5 rounded font-bold"
                   style="background:#ecfdf5;color:#047857;">✓ 主數據齊備</span>
           </div>
-          <div class="p-3 bg-white">
-            <div class="border border-dashed border-gray-200 rounded p-2 overflow-hidden bg-gray-50"
-                 style="max-height:300px;">
-              <div v-html="nutritionPreviewHtml"
-                   style="position:relative; transform:scale(0.4); transform-origin:top left; width:250%;"></div>
+          <!-- 預覽（70×50mm 实际尺寸，缩放 1.5 倍方便看清）-->
+          <div class="p-4 bg-gray-100 flex items-center justify-center">
+            <div
+              class="bg-white shadow-sm relative overflow-hidden"
+              style="width:105mm; height:75mm; transform-origin:top left;"
+            >
+              <!-- 内层包一层 70×50mm 容器，scale 1.5 → 视觉 105×75 -->
+              <div
+                style="width:70mm; height:50mm; position:relative; overflow:hidden; transform:scale(1.5); transform-origin:top left;"
+                v-html="previewHtml(entry)"
+              />
             </div>
           </div>
-          <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between flex-wrap gap-3">
+        </div>
+      </div>
+
+      <!-- ========== 列印控制 ========== -->
+      <div class="g-card p-4 sm:p-5 flex items-center justify-between flex-wrap gap-3">
+        <div class="text-sm text-gray-600">
+          每次列印 <span class="font-bold text-teal-700">{{ labels.length }}</span> 張
+          <span v-if="labels.length > 1" class="text-xs text-gray-400">
+            (主標籤 + 警告貼紙連續打印)
+          </span>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500">份數</span>
             <div class="g-spinner">
-              <input :value="printQty.nutrition" type="number" min="1"
-                     @input="printQty.nutrition = parseInt($event.target.value) || 1" />
+              <input :value="printQty" type="number" min="1"
+                     @input="printQty = parseInt($event.target.value) || 1" />
               <div class="sp-btns">
-                <button @click="spinQty('nutrition', 1)" type="button">▲</button>
-                <button @click="spinQty('nutrition', -1)" type="button">▼</button>
+                <button @click="spinQty(1)" type="button">▲</button>
+                <button @click="spinQty(-1)" type="button">▼</button>
               </div>
             </div>
-            <button class="g-btn g-btn-pink" style="padding:8px 22px;font-size:13px;" @click="doPrintNutrition">
-              🖨️ 列印
-            </button>
           </div>
+          <button class="g-btn g-btn-pink" style="padding:10px 26px;height:44px;"
+                  :disabled="printing" @click="doPrint">
+            <span v-if="printing">處理中…</span>
+            <span v-else>🖨️ 列印全部 ({{ labels.length * printQty }} 張)</span>
+          </button>
         </div>
       </div>
     </div>

@@ -129,6 +129,28 @@ function statusOfItem(it) {
 const curItem = computed(() =>
   curPO.value && curSKU.value ? curPO.value.items.find(i => i.sku === curSKU.value) : null,
 )
+
+// 标签类型徽章 — 让点货员一眼知道要贴啥标签
+// 规则：ordinary_label 不显示（普通的不需要特别提醒）；其他 4 类显示；
+//      has_jelly_warning 单独显示一个紫色「果凍警告」徽章
+const _LABEL_TYPE_BADGES = {
+  food_label:         { label: '食品',     style: 'background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;' },
+  health_food:        { label: '保健食品', style: 'background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;' },
+  special_label:      { label: '蟲蟲特殊', style: 'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;' },
+  extinguisher_label: { label: '滅火筒',   style: 'background:#fff1f2;color:#be123c;border:1px solid #fecdd3;' },
+  // ordinary_label  故意不放 — 普通的不标
+}
+const labelTypeBadges = computed(() => {
+  const it = curItem.value
+  if (!it) return []
+  const badges = []
+  const t = it.label_render_type
+  if (t && _LABEL_TYPE_BADGES[t]) badges.push(_LABEL_TYPE_BADGES[t])
+  if (it.has_jelly_warning) {
+    badges.push({ label: '果凍警告', style: 'background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe;' })
+  }
+  return badges
+})
 const curPk = computed(() => curSKU.value ? pk[curSKU.value] : null)
 const hasDates = computed(() => (curPk.value?.dates.length || 0) > 0)
 
@@ -688,7 +710,16 @@ onBeforeUnmount(() => {
       <h1>{{ curItem.name }}</h1>
       <RefreshButton :on-refresh="refreshNow" />
     </div>
-    <div class="font-mono text-xs font-bold mb-2.5">條碼: {{ curItem.barcode }}</div>
+    <div class="flex items-center gap-2 mb-2.5 flex-wrap">
+      <span class="font-mono text-xs font-bold">條碼: {{ curItem.barcode }}</span>
+      <!-- 标签类型徽章 — 食品 / 保健 / 蟲蟲 / 滅火筒 + (果凍警告) -->
+      <!-- 普通(ordinary_label) 故意不显示，跟用户约定 -->
+      <span v-for="(b, i) in labelTypeBadges" :key="i"
+            class="inline-block px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap"
+            :style="b.style">
+        {{ b.label }}
+      </span>
+    </div>
 
     <!-- 摘要卡 -->
     <div class="sum-row">

@@ -24,7 +24,7 @@ import { outbound, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import RefreshButton from '@/components/RefreshButton.vue'
-import { printBarcodeLabel, printNutritionLabel } from '@/utils/labelRenderers'
+import { printBarcodeLabel, printLabels } from '@/utils/labelRenderers'
 
 // ============================================================
 // 状态
@@ -164,15 +164,15 @@ async function autoPrintLabelForItem(item) {
     showToast(`${item.sku} 標籤資料載入超時`, 'warning')
     return
   }
-  if (!cached.product && !cached.master_data) {
+  if (!cached.product && (!cached.labels || !cached.labels.length)) {
     showToast(`找不到 ${item.sku} 的標籤資料`, 'warning')
     return
   }
   if (cached.product) {
     printBarcodeLabel(cached.product, 1)
   }
-  if (cached.master_data) {
-    printNutritionLabel(cached.master_data, 1)
+  if (cached.labels && cached.labels.length) {
+    printLabels(cached.labels, 1)
   }
 }
 
@@ -196,8 +196,8 @@ function preloadLabel(item) {
   labelsApi.lookupByBarcode(bc)
     .then(res => {
       labelCache.set(bc, {
-        product:     res.product,
-        master_data: res.master_data || null,
+        product: res.product,
+        labels:  res.labels || [],
       })
     })
     .catch(err => {
@@ -208,7 +208,7 @@ function preloadLabel(item) {
       const code = err.response?.data?.error
       if (code === 'product_not_found') {
         // 找不到 — 缓存空结果防重试，按按钮时 toast 提示
-        labelCache.set(bc, { product: null, master_data: null })
+        labelCache.set(bc, { product: null, labels: [] })
       } else {
         labelCache.delete(bc)  // 其他错误清掉，下次按按钮可重试
       }
@@ -230,7 +230,7 @@ function printLabelForItem(item) {
     if (!cached) preloadLabel(item)
     return
   }
-  if (!cached.product && !cached.master_data) {
+  if (!cached.product && (!cached.labels || !cached.labels.length)) {
     showToast(`找不到 ${item.sku} 的標籤資料`, 'error')
     return
   }
@@ -238,8 +238,8 @@ function printLabelForItem(item) {
   if (cached.product) {
     printBarcodeLabel(cached.product, 1)
   }
-  if (cached.master_data) {
-    printNutritionLabel(cached.master_data, 1)
+  if (cached.labels && cached.labels.length) {
+    printLabels(cached.labels, 1)
   }
 }
 

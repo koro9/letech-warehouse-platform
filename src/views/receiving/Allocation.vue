@@ -450,6 +450,7 @@ async function saveData() {
           tpl: parseInt(c.tpl) || 0,
         })),
         box_qty: parseInt(r.box_qty) || 0,
+        remarks: (r.remarks || '').trim(),
         _last_modified_at: r.last_modified_at,
       }))
 
@@ -528,14 +529,15 @@ async function applyResolutions() {
     const row = rows.find(r => r.po_line_id === c.po_line_id)
     if (!row) continue
     if (choice === 'accept') {
-      // 接受服务器版本
+      // 接受服务器版本（含 remarks）
       Object.assign(row, {
         tpl:    c.server_data.tpl ?? '',
         ws:     c.server_data.ws ?? '',
         extra:  Array.isArray(c.server_data.extra) && c.server_data.extra.length >= 2
                   ? c.server_data.extra
-                  : [{ qty: 0 }, { qty: 0 }],
+                  : [{ qty: 0 }, { qty: 0}],
         combos: Array.isArray(c.server_data.combos) ? c.server_data.combos : [],
+        remarks: c.server_remarks || '',
         last_modified_at: c.modified_at,
       })
       dirtyLineIds.delete(c.po_line_id)
@@ -552,6 +554,7 @@ async function applyResolutions() {
           sku: cc.sku, suffix: cc.suffix, multiplier: cc.multiplier,
           tpl: parseInt(cc.tpl) || 0,
         })),
+        remarks: (row.remarks || '').trim(),
         _last_modified_at: row.last_modified_at,
       })
     }
@@ -895,7 +898,18 @@ onBeforeUnmount(() => {
                        但 box_qty 改了之后后端字段还没刷新（要 save 后才刷），所以前端在
                        display 时 fallback 用前端 ceil 即时计算，让员工录入瞬间就看到 -->
                   <td class="px-2.5 py-2 text-center text-xs font-semibold" :class="liveTotalBoxes(row) === '—' ? 'text-gray-300' : 'text-gray-700'">{{ liveTotalBoxes(row) }}</td>
-                  <td class="px-2.5 py-2 text-center text-xs text-gray-500">{{ row.remarks || '—' }}</td>
+                  <td class="px-2.5 py-2">
+                    <!-- Remarks 可编辑 — 分配人员手填，M3a 点货员只读看到 -->
+                    <input
+                      v-model="row.remarks"
+                      @input="markDirty(row)"
+                      type="text"
+                      maxlength="200"
+                      placeholder="—"
+                      class="w-full min-w-[120px] px-2 py-1 border rounded text-xs"
+                      style="border-color:#e5e7eb;"
+                    />
+                  </td>
                   <td class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
                   <td class="px-2.5 py-2 font-mono text-[11px] font-bold">{{ row.sku }}</td>
                   <td class="px-2.5 py-2 text-xs max-w-[160px] truncate" :title="row.name">{{ row.name }}</td>
@@ -1080,6 +1094,9 @@ onBeforeUnmount(() => {
                 <div v-if="(c.your_data.combos || []).length">
                   Combos: <span class="font-mono">{{ (c.your_data.combos || []).length }}</span> 行
                 </div>
+                <div v-if="c.your_remarks" class="mt-1 text-gray-600 break-all">
+                  Remarks: <span class="font-mono">{{ c.your_remarks }}</span>
+                </div>
               </div>
               <div class="bg-white rounded border border-gray-200 p-2">
                 <div class="text-[11px] font-bold text-emerald-700 mb-1">伺服器最新</div>
@@ -1087,6 +1104,9 @@ onBeforeUnmount(() => {
                 <div>WS: <span class="font-mono">{{ c.server_data.ws ?? 0 }}</span></div>
                 <div v-if="(c.server_data.combos || []).length">
                   Combos: <span class="font-mono">{{ (c.server_data.combos || []).length }}</span> 行
+                </div>
+                <div v-if="c.server_remarks" class="mt-1 text-gray-600 break-all">
+                  Remarks: <span class="font-mono">{{ c.server_remarks }}</span>
                 </div>
               </div>
             </div>
