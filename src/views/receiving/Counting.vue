@@ -21,7 +21,8 @@
  * 该 alloc 显示哪几个仓的录入框（main alloc 通常含 3PL/WS/SD4/额外列；
  * combo alloc 只含 3PL）。不再写死全局 WH 常量。
  */
-import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount, onActivated } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { onBeforeRouteLeave } from 'vue-router'
 import { po as poApi } from '@/api'
 import { showToast } from '@/composables/useToast'
@@ -598,6 +599,28 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', _onBeforeUnload)
 })
+
+// ============================================================
+// 深链接支持 — Odoo PO form 「WMS 點貨」smart button 跳过来时
+// URL 形如 /warehouse/receiving?po=P00007，自动加载该 PO
+// ============================================================
+// onActivated 在 KeepAlive 缓存下也会触发；onMounted 兜底首次访问。
+// 用完后从 URL 清掉 query 避免刷新页面又重复触发。
+const _route = useRoute()
+const _router = useRouter()
+
+async function _autoLoadFromQuery() {
+  const poName = (_route.query?.po || '').toString().trim()
+  if (!poName) return
+  if (curPO.value && curPO.value.po === poName) return  // 已经在了
+  poInput.value = poName
+  // 清 query — 避免用户在页内刷新又触发一次
+  _router.replace({ name: _route.name, query: {} })
+  await loadPO()
+}
+
+onMounted(_autoLoadFromQuery)
+onActivated(_autoLoadFromQuery)
 </script>
 
 <template>
