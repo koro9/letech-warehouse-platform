@@ -1,5 +1,32 @@
 import http from './http'
 
+// ============================================================
+// PO Dashboard — 列表總覽
+// ============================================================
+
+/**
+ * 列出所有 confirmed PO 及其點貨進度。
+ *
+ * 後端契約：GET /api/warehouse/po/list?tab=pending|completed
+ *
+ * @param {'pending'|'completed'} tab
+ * @returns 200 { pos: [...], total }
+ */
+export function listPOs(tab = 'pending') {
+  return http.get('/warehouse/po/list', { params: { tab } })
+}
+
+/**
+ * 列出所有待揀 Transfer Orders（跨 PO）。
+ *
+ * 後端契約：GET /api/warehouse/transfers/pending
+ *
+ * @returns 200 { transfers: [{ id, name, po_name, dest_warehouse, stats, ... }] }
+ */
+export function listPendingTransfers() {
+  return http.get('/warehouse/transfers/pending')
+}
+
 /**
  * 收貨分配 (M3b) — PO Allocation API
  *
@@ -163,7 +190,7 @@ export function listTransfers(poName) {
  * 后端契约：POST /api/warehouse/po/<po_name>/transfers/generate
  *
  * @returns 200 { transfers: [...摘要...], count }
- *   409 already_generated  PO 已经生成过 TR（去 Odoo 后台先删旧的）
+ *   409 generate_blocked   PO 已生成过 TR（增量生成会跳过已覆盖行；如需重来去 Odoo 后台删旧 TR）
  *   422 no_allocation      PO 还没录 M3b 分配方案
  *   404 po_not_found / 403 not_authorized
  */
@@ -180,7 +207,7 @@ export function generateTransfers(poName) {
  * @returns 200 {
  *   id, name, po_id, po_name,
  *   source_warehouse, dest_warehouse, state,
- *   parent_transfer_id, parent_transfer_name,
+ *   parent_transfer_id, parent_ref,
  *   groups_data: [...],
  *   stats: {...},
  *   last_modified_at, last_modified_by
@@ -218,4 +245,112 @@ export function saveTransfer(trId, payload) {
  */
 export function cutTransfer(trId) {
   return http.post(`/warehouse/transfer/${trId}/cut`, {})
+}
+
+// ============================================================
+// PO 收貨入庫 (Receive Goods)
+// ============================================================
+
+/**
+ * 收貨入庫 — validate incoming picking (WH/IN)。
+ *
+ * 後端契約：POST /api/warehouse/po/<po_name>/receive
+ *
+ * 智能處理：
+ *   - 齊數（counted == qty）：收全部
+ *   - 多收（counted > qty）：只收 PO 數量，自動加新 PO line (cost=0)
+ *   - 少收（counted < qty）：只收實際數量，差額自動 Backorder
+ *   - 未點貨：不收，留待 Backorder
+ *
+ * @param {string} poName  PO 單號
+ * @returns 200 {
+ *   ok, picking_name, backorder_name?,
+ *   lines: [{ sku, name, expected, counted, received, scenario }],
+ *   summary: { total_received, total_expected, matched, over, under, not_counted },
+ *   extra_lines: [{ po_line_id, sku, extra_qty }]
+ * }
+ *   422 already_received / no_pending_incoming / no_counting_data
+ *   409 concurrent_receive
+ *   403 not_authorized
+ */
+export function receivePO(poName) {
+  const safe = encodeURIComponent(poName)
+  return http.post(`/warehouse/po/${safe}/receive`, {})
+}
+
+// ============================================================
+// Transfer — 截單出貨 / 完成 / Draft 管理
+// ============================================================
+
+/**
+ * 截單出貨 — 3PL local draft → 真正 Odoo TR (with stock.picking)。
+ *
+ * 後端契約：POST /api/warehouse/transfer/<tr_id>/cutoff
+ *
+ * @param {number} trId  le.po.transfer ID
+ * @returns 200 { ok, new_transfer, original }
+ *   422 cannot_cutoff / not_local_draft
+ */
+export function cutoffTransfer(trId) {
+  return http.post(`/warehouse/transfer/${trId}/cutoff`, {})
+}
+
+/**
+ * 完成 Transfer — validate stock.picking（需先收貨）。
+ *
+ * 後端契約：POST /api/warehouse/transfer/<tr_id>/complete
+ *
+ * @param {number} trId
+ * @returns 200 { ok, transfer }
+ *   422 complete_blocked（收貨未完成 / 庫存不足）
+ */
+export function completeTransfer(trId) {
+  return http.post(`/warehouse/transfer/${trId}/complete`, {})
+}
+
+/**
+ * 列出所有 3PL Draft TRs（含完整 groups_data）。
+ *
+ * 後端契約：GET /api/warehouse/transfers/drafts
+ *
+ * @returns 200 { drafts: [{ ...full transfer with groups_data }] }
+ */
+export function listDraftTransfers() {
+  return http.get('/warehouse/transfers/drafts')
+}
+
+/**
+ * 從 3PL Draft 移除指定項目。
+ *
+ * 後端契約：POST /api/warehouse/transfer/<tr_id>/remove-item
+ *
+ * @param {number} trId
+ * @param {{ po_line_id: number }} payload
+ * @returns 200 { ok, transfer }
+ *   422 not_local_draft / item_not_found
+ */
+export function removeDraftItem(trId, payload) {
+  return http.post(`/warehouse/transfer/${trId}/remove-item`, payload)
+}
+
+/**
+ * Look up a TR directly by its name (TR-XXXXX / local draft name)
+ * or a replenishment stock.picking by its Odoo name (WH/OUT/XXXXX, etc.).
+ *
+ * Returns: { ok, type: 'tr'|'replenishment', po_name, partner_name,
+ *             transfers: [summary], transfer: full }
+ */
+export function lookupTransferByName(name) {
+  return http.get('/warehouse/transfer/lookup', { params: { name } })
+}
+
+/**
+ * 取 TR 揀貨單嘅 FEFO 已拆分 label 資料。
+ *
+ * 後端契約：GET /api/warehouse/transfer/<tr_id>/picklist
+ *
+ * @returns 200 { ok, labels: [{ sku, name, barcode, qty, expDate? }] }
+ */
+export function getTransferPicklist(trId) {
+  return http.get(`/warehouse/transfer/${trId}/picklist`)
 }

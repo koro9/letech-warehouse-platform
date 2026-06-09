@@ -10,10 +10,11 @@ import { ref } from 'vue'
 const current = ref(null)
 let timer = null
 
-export function showToast(message, type = 'success') {
+export function showToast(message, type = 'success', duration) {
   current.value = { message, type }
   clearTimeout(timer)
-  timer = setTimeout(() => { current.value = null }, 2200)
+  const ms = duration ?? (type === 'error' ? 5000 : 2200)
+  timer = setTimeout(() => { current.value = null }, ms)
 }
 
 export function useToast() {

@@ -120,7 +120,11 @@ function fmtTime(d) {
 function statusOfItem(it) {
   const tu = itemUnits(it), pu = itemPkU(it)
   if (pu === 0) return { label: '待點貨', cls: 'text-amber-600 bg-amber-50' }
-  if (pu >= tu) return { label: '已完成', cls: 'text-green-600 bg-green-50' }
+  if (pu >= tu) {
+    // 點完了 — 但數量是否吻合？
+    if (pu !== tu) return { label: '需核實', cls: 'text-red-600 bg-red-50' }
+    return { label: '已完成', cls: 'text-green-600 bg-green-50' }
+  }
   return { label: '進行中', cls: 'text-amber-600 bg-amber-50' }
 }
 

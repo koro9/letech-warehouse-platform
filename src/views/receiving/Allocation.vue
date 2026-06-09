@@ -24,8 +24,8 @@
  *
  * Excel 导出当前 stub 化（demo 用 xlsx CDN，本项目未加 dep）
  */
-import { computed, reactive, ref, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { computed, reactive, ref, nextTick, onMounted, onBeforeUnmount, onActivated, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import * as XLSX from 'xlsx'
 import { po as poApi } from '@/api'
 import { showToast } from '@/composables/useToast'
@@ -170,6 +170,25 @@ function sd4Class(v) {
   return 'bg-gray-100 text-gray-700'
 }
 
+// Mismatch: counted 與 qty 不一致（未點/點不足/超點）
+function isMismatch(r) {
+  if (r.counted == null) return 'not_counted'
+  if (r.counted < r.qty) return 'under'
+  if (r.counted > r.qty) return 'over'
+  return false
+}
+
+const mismatchSummary = computed(() => {
+  let under = 0, notCounted = 0, over = 0
+  rows.forEach(r => {
+    const m = isMismatch(r)
+    if (m === 'under') under++
+    else if (m === 'not_counted') notCounted++
+    else if (m === 'over') over++
+  })
+  return { under, notCounted, over, total: under + notCounted + over }
+})
+
 // 合计行
 const footerStats = computed(() => {
   let tQ = 0, tCo = 0, tT = 0, tW = 0, tS = 0
@@ -289,10 +308,17 @@ function onWhInput(idx) {
   }, 200)
 }
 
+const FIXED_WH_CODES = new Set(['3PL', 'WS', 'SD4'])
+
 async function searchWh(q) {
   try {
     const res = await poApi.searchWarehouses(q || '')
-    whSuggestions.value = res.warehouses || []
+    const usedCodes = new Set(
+      extraCols.filter(c => c.active && c.name).map(c => c.name)
+    )
+    whSuggestions.value = (res.warehouses || []).filter(
+      w => !FIXED_WH_CODES.has(w.code) && !usedCodes.has(w.code)
+    )
   } catch {
     whSuggestions.value = []
   }
@@ -649,7 +675,7 @@ function exportExcel() {
     // combo 子行（缩进 + 只填 3PL）
     ;(r.combos || []).forEach(c => {
       dataRows.push([
-        '', '', '', '',                     // 总数/现点/箱入/总箱数 空
+        '', '', '', '',                      // 总数/现点/箱入/总箱数 空
         '', '',                              // Remarks/Barcode 空
         `↳ ${c.sku}`,                        // SKU 缩进
         `${c.name || ''} ${c.label || ''}`.trim(),
@@ -750,13 +776,27 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', _onBeforeUnload)
-  // combo 菜单 listener 清理（防菜单还开着时用户切走路由 → leak）
-  // watch 在 openMenuIdx 不变的情况下不会再触发，所以这里强制 detach
   window.removeEventListener('scroll', onMenuScroll, true)
   window.removeEventListener('resize', onMenuResize)
   window.removeEventListener('keydown', onMenuEsc)
   window.removeEventListener('mousedown', onMenuOutsideClick)
 })
+
+// 深鏈接 — 從 Dashboard 或 Odoo 跳過來時 ?po=P00007 自動載入
+const _route = useRoute()
+const _router = useRouter()
+
+async function _autoLoadFromQuery() {
+  const poName = (_route.query?.po || '').toString().trim()
+  if (!poName) return
+  if (currentPO.value === poName) return
+  poInput.value = poName
+  _router.replace({ name: _route.name, query: {} })
+  await enterPO()
+}
+
+onMounted(_autoLoadFromQuery)
+onActivated(_autoLoadFromQuery)
 </script>
 
 <template>
@@ -823,10 +863,23 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- Mismatch banner -->
+    <div v-if="mismatchSummary.total > 0" class="mx-3 sm:mx-4 mt-2 px-4 py-2.5 rounded-lg bg-yellow-50 border border-yellow-200 flex items-center gap-3 text-sm flex-shrink-0">
+      <span class="text-yellow-600 text-base flex-shrink-0">⚠️</span>
+      <div class="text-yellow-800">
+        <span class="font-semibold">{{ mismatchSummary.total }} 行點貨差異</span>
+        <span class="text-yellow-600 text-xs ml-2">
+          <template v-if="mismatchSummary.under > 0">點不足 {{ mismatchSummary.under }}</template>
+          <template v-if="mismatchSummary.under > 0 && mismatchSummary.notCounted > 0"> · </template>
+          <template v-if="mismatchSummary.notCounted > 0">未點貨 {{ mismatchSummary.notCounted }}</template>
+          <template v-if="(mismatchSummary.under > 0 || mismatchSummary.notCounted > 0) && mismatchSummary.over > 0"> · </template>
+          <template v-if="mismatchSummary.over > 0">超點 {{ mismatchSummary.over }}</template>
+        </span>
+        <span class="text-yellow-500 text-xs ml-2">— 生成 TR 時將跳過點不足/未點行</span>
+      </div>
+    </div>
+
     <!-- 表格 -->
-    <!-- min-height: 220px — 单条数据时表格容器不至于太短。combo 下拉因为已经 -->
-    <!-- Teleport 到 body 渲染（见 script），不再依赖容器高度防裁切，min-height -->
-    <!-- 只用作纯视觉。spacer 行配合此值让 tfoot 贴底（详见 spacerHeight）。  -->
     <div class="flex-1 overflow-auto p-3 sm:p-4">
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="overflow-auto" style="max-height: calc(100vh - 220px); min-height: 220px;">
@@ -875,7 +928,7 @@ onBeforeUnmount(() => {
             <tbody>
               <template v-for="row in filteredRows" :key="row.po_line_id">
                 <tr class="border-b border-gray-100"
-                    :class="dirtyLineIds.has(row.po_line_id) ? 'bg-amber-50/40' : ''">
+                    :class="isMismatch(row) ? 'bg-yellow-50' : dirtyLineIds.has(row.po_line_id) ? 'bg-amber-50/40' : ''">
                   <td class="px-2.5 py-2 text-center font-semibold">{{ row.qty }}</td>
                   <td class="px-2.5 py-2 text-center" style="background:rgba(240,253,250,.4);">
                     <span v-if="row.counted == null" class="text-gray-300 text-xs">—</span>

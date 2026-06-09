@@ -35,9 +35,12 @@ const routes = [
       { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard', requires: 'type:internal' } },
 
       // ===== PO 收貨平台 =====
-      { path: 'receiving',          name: 'receiving-counting', component: () => import('@/views/receiving/Counting.vue'),   meta: { system: 'receiving' } },
-      { path: 'receiving/alloc',    name: 'receiving-alloc',    component: () => import('@/views/receiving/Allocation.vue'), meta: { system: 'receiving' } },
-      { path: 'receiving/transfer', name: 'receiving-transfer', component: () => import('@/views/receiving/Transfer.vue'),   meta: { system: 'receiving' } },
+      { path: 'receiving',           name: 'receiving-dashboard', component: () => import('@/views/receiving/Dashboard.vue'),   meta: { system: 'receiving' } },
+      { path: 'receiving/counting',  name: 'receiving-counting',  component: () => import('@/views/receiving/Counting.vue'),    meta: { system: 'receiving' } },
+      { path: 'receiving/alloc',     name: 'receiving-alloc',     component: () => import('@/views/receiving/Allocation.vue'),  meta: { system: 'receiving' } },
+      { path: 'receiving/transfer',  name: 'receiving-transfer',  component: () => import('@/views/receiving/Transfer.vue'),    meta: { system: 'receiving' } },
+      { path: 'receiving/pending-tr', name: 'receiving-pending-tr', component: () => import('@/views/receiving/PendingTransfers.vue'), meta: { system: 'receiving' } },
+      { path: 'receiving/drafts',     name: 'receiving-drafts',     component: () => import('@/views/receiving/DraftManagement.vue'), meta: { system: 'receiving' } },
 
       // ===== 智能查詢（直连 Odoo 庫存） =====
       { path: 'query', name: 'query-home', component: () => import('@/views/query/SmartQuery.vue'), meta: { system: 'query' } },

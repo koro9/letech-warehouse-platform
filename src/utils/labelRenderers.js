@@ -773,3 +773,125 @@ function _printBatch({ width, height, count, renderOne }) {
     iframe.onload = triggerPrint
   }
 }
+
+// ============================================================
+// 揀貨單 & Repack 標籤 — 新增 (2026-06)
+// ============================================================
+
+/**
+ * Internal: print pre-rendered label objects
+ * labelResults: [{ html, postRender? }]
+ */
+function _printRaw(labelResults, width, height) {
+  const pages = []
+  const postRenders = []
+  for (const r of labelResults) {
+    if (!r?.html) continue
+    pages.push(`<div class="label-page">${r.html}</div>`)
+    if (r.postRender) postRenders.push(r.postRender)
+  }
+  if (!pages.length) return
+
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;'
+  document.body.appendChild(iframe)
+  const doc = iframe.contentDocument || iframe.contentWindow.document
+  doc.open()
+  doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>
+      *{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+      @page{size:${width}mm ${height}mm;margin:0;}
+      html,body{margin:0;padding:0;font-family:'Microsoft YaHei','Arial Narrow',sans-serif;}
+      .label-page{width:${width}mm;height:${height}mm;position:relative;overflow:hidden;page-break-after:always;}
+      .label-page:last-child{page-break-after:auto;}
+    </style></head><body>${pages.join('')}</body></html>`)
+  doc.close()
+  const triggerPrint = () => {
+    for (const fn of postRenders) { try { fn(doc) } catch (e) {} }
+    setTimeout(() => {
+      try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch (e) {}
+      setTimeout(() => { if (iframe.parentNode) iframe.parentNode.removeChild(iframe) }, 1000)
+    }, 80)
+  }
+  if (doc.readyState === 'complete') triggerPrint()
+  else iframe.onload = triggerPrint
+}
+
+/**
+ * 揀貨單標籤 (100×150mm) — 每個 (SKU × 批次) 一張
+ *   item: { sku, name, qty (or reqQty), barcode, expDate?, lotRef? }
+ *
+ *   字體大小參考 Pick List_100×150mm.pdf 原稿：
+ *     SKU 22pt 粗體 / 中文名 14pt / Exp 14pt / 數量 18pt 粗體 /
+ *     barcode 90% 寬高 140 / 條碼字 11pt 粗體 / 底部 lot 15pt
+ */
+export function generatePickListLabel(item) {
+  const svgId = `bc-pl-${Math.random().toString(36).slice(2, 8)}`
+  const barcode = String(item.barcode || '')
+  const qty = parseInt(item.qty) || parseInt(item.reqQty) || 0
+  const expDate = item.expDate ? String(item.expDate) : ''
+  const lotRef = item.lotRef ? String(item.lotRef) : ''
+  const html = `
+    <div style="width:100mm;height:150mm;position:relative;display:flex;flex-direction:column;align-items:center;padding:6mm 4mm 5mm;box-sizing:border-box;font-family:'Microsoft YaHei','Arial',sans-serif;">
+      <div style="font-size:22pt;font-weight:bold;text-align:center;margin-bottom:4mm;word-break:break-all;line-height:1.1;">${esc(item.sku || '')}</div>
+      <div style="font-size:14pt;text-align:center;margin-bottom:2mm;line-height:1.25;">${esc(item.name || '')}</div>
+      ${expDate ? `<div style="font-size:14pt;text-align:center;margin-bottom:2mm;">Exp Date: ${esc(expDate)}</div>` : ''}
+      <div style="font-size:18pt;font-weight:bold;text-align:center;margin-bottom:4mm;">數量: ${qty}</div>
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;">
+        ${barcode ? `<svg id="${svgId}" style="width:92%;"></svg>` : ''}
+        <div style="font-size:11pt;text-align:center;margin-top:1.5mm;letter-spacing:1px;font-weight:bold;">*${esc(barcode)}*</div>
+      </div>
+      ${lotRef || expDate ? `<div style="font-size:15pt;text-align:center;margin-top:3mm;">${esc(lotRef)}${lotRef && expDate ? ' -' : ''}${esc(expDate)}</div>` : ''}
+    </div>`
+  const postRender = barcode ? (doc) => {
+    const svg = doc.getElementById(svgId)
+    if (!svg) return
+    try {
+      JsBarcode(svg, barcode, { format: 'CODE128', width: 2.5, height: 140, displayValue: false, margin: 2 })
+    } catch (e) { console.warn('PickList barcode failed:', e) }
+  } : null
+  return { html, postRender }
+}
+
+/**
+ * Repack 標籤 (70×50mm) — 條碼上大圖 + 條碼文字 + 中文名
+ * item: { barcode, name }
+ */
+export function generateRepackLabel(item) {
+  const svgId = `bc-rp-${Math.random().toString(36).slice(2, 8)}`
+  const barcode = String(item.barcode || '')
+  const html = `
+    <div style="width:70mm;height:50mm;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:1mm 2mm 1.5mm;box-sizing:border-box;font-family:'Microsoft YaHei','Arial',sans-serif;">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;width:100%;">
+        ${barcode ? `<svg id="${svgId}" style="width:95%;"></svg>` : ''}
+      </div>
+      <div style="font-size:8pt;font-weight:bold;text-align:center;letter-spacing:1px;margin:1mm 0 0.5mm;">${esc(barcode)}</div>
+      <div style="font-size:6.5pt;text-align:center;line-height:1.2;max-height:10mm;overflow:hidden;">${esc(item.name || '')}</div>
+    </div>`
+  const postRender = barcode ? (doc) => {
+    const svg = doc.getElementById(svgId)
+    if (!svg) return
+    try {
+      JsBarcode(svg, barcode, { format: 'CODE128', width: 2, height: 55, displayValue: false, margin: 1 })
+    } catch (e) { console.warn('Repack barcode failed:', e) }
+  } : null
+  return { html, postRender }
+}
+
+/**
+ * 列印揀貨單 — 一張 TR 的所有品項，每品項一張 100×150mm label
+ * items: [{ sku, name, reqQty, barcode }]
+ */
+export function printPickList(items) {
+  if (!items?.length) return
+  _printRaw(items.map(item => generatePickListLabel(item)), 100, 150)
+}
+
+/**
+ * 列印 Repack 標籤 — qty 張 70×50mm repack label
+ * item: { barcode, name }
+ */
+export function printRepackLabels(item, qty = 1) {
+  const n = Math.max(1, Math.min(parseInt(qty) || 1, 500))
+  _printRaw(Array(n).fill(generateRepackLabel(item)), 70, 50)
+}

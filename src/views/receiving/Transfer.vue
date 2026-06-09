@@ -21,11 +21,13 @@
  *   后端拆 TR 成"已揀部分"+"剩餘部分"两张，原 TR 锁定 (state=cut)。
  *   员工要继续揀 → 去 trlist 找新建的"第二轉" TR。
  */
-import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
-import { po as poApi } from '@/api'
+import { computed, nextTick, reactive, ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { po as poApi, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
+import { printLabels, printPickList, printRepackLabels } from '@/utils/labelRenderers'
+import { printToBartender } from '@/utils/bartenderPrint'
 
 // ============================================================
 // 状态
@@ -34,6 +36,9 @@ const view = ref('search')           // 'search' | 'trlist' | 'trdetail' | 'item
 const loading = ref(false)
 const saving = ref(false)
 const cutting = ref(false)
+const completing = ref(false)
+const showCompleteModal = ref(false)
+const printingPicklist = ref(false)
 
 // PO 级
 const poInput = ref('')
@@ -46,6 +51,11 @@ const trSearch = ref('')
 
 // TR 列表（trlist 视图）
 const trList = ref([])                // TransferSummary[]
+const uncoveredLines = ref([])        // 未覆蓋行（後端返回）
+const incomingState = ref('none')    // 入庫狀態: 'none' | 'pending' | 'partial' | 'done'
+const receiving = ref(false)
+const showReceiveModal = ref(false)
+const receiveResult = ref(null)
 
 // 当前 TR 详情（trdetail / item 视图）
 const activeTransfer = ref(null)      // 完整 TR { id, name, state, groups_data, ... }
@@ -70,10 +80,21 @@ const conflictModal = reactive({
 // ============================================================
 // 计算
 // ============================================================
+const sortedTRs = computed(() => {
+  // 'cut' local drafts are fully processed — hide them.
+  // Their real TRs (TR-XXXXX with Ref: badge) remain visible as the audit trail.
+  return [...trList.value]
+    .filter(t => t.state !== 'cut')
+    .sort((a, b) => {
+      const aLocal = a.state === 'local_draft' || a.state === 'in_progress' ? 0 : 1
+      const bLocal = b.state === 'local_draft' || b.state === 'in_progress' ? 0 : 1
+      return aLocal - bLocal
+    })
+})
 const filteredTRs = computed(() => {
-  if (!trSearch.value.trim()) return trList.value
+  if (!trSearch.value.trim()) return sortedTRs.value
   const q = trSearch.value.toLowerCase()
-  return trList.value.filter(t => (t.name || '').toLowerCase().includes(q))
+  return sortedTRs.value.filter(t => (t.name || '').toLowerCase().includes(q))
 })
 
 const curGroups = computed(() => activeTransfer.value?.groups_data || [])
@@ -93,28 +114,93 @@ function trStats(tr) {
   // 后端已经返了 stats，直接用
   return tr.stats || { groups: 0, total_req: 0, total_pick: 0, total_boxes: 0, done_groups: 0 }
 }
+// Bug2 fix: done TR 顯示 100%，避免 non-3PL 完成後 pickQty=0 導致 0% 的視覺問題
+function trPct(tr) {
+  if (tr.state === 'done') return 100
+  const s = trStats(tr)
+  return s.total_req > 0 ? Math.round(s.total_pick / s.total_req * 100) : 0
+}
 
 const allTRStats = computed(() => {
-  return trList.value.reduce((a, t) => {
+  // Exclude 'cut' local drafts — their items are already counted in the real TRs they spawned.
+  return trList.value.filter(t => t.state !== 'cut').reduce((a, t) => {
     const s = trStats(t)
     return { rq: a.rq + s.total_req, pk: a.pk + s.total_pick, bx: a.bx + s.total_boxes }
   }, { rq: 0, pk: 0, bx: 0 })
 })
 
+// 未覆蓋行
+const hasUncovered = computed(() => uncoveredLines.value.length > 0)
+
 const detailStats = computed(() => {
   if (!activeTransfer.value) return { rq: 0, pk: 0, bx: 0, dn: 0, total: 0 }
   const s = activeTransfer.value.stats || {}
-  return {
-    rq:    s.total_req   || 0,
-    pk:    s.total_pick  || 0,
-    bx:    s.total_boxes || 0,
-    dn:    s.done_groups || 0,
-    total: s.groups      || 0,
+  // Bug1 fix: rq 用 server stats（穩定），pk/bx/dn 從 live groups_data 即時計算
+  const rq    = s.total_req || 0
+  const total = s.groups    || 0
+  let pk = 0, bx = 0, dn = 0
+  for (const g of (activeTransfer.value.groups_data || [])) {
+    let gPk = 0, gRq = 0
+    for (const i of (g.items || [])) {
+      const p = parseInt(i.pickQty) || 0
+      const r = parseInt(i.reqQty)  || 0
+      pk += p
+      bx += parseInt(i.boxes) || 0
+      gPk += p
+      gRq += r
+    }
+    if (gRq > 0 && gPk >= gRq) dn++
   }
+  return { rq, pk, bx, dn, total }
 })
 const detailPct = computed(() =>
   detailStats.value.rq > 0 ? Math.round(detailStats.value.pk / detailStats.value.rq * 100) : 0,
 )
+
+// ── 3PL vs 非 3PL 模式判断 ──
+const isLocalDraft = computed(() => {
+  const st = activeTransfer.value?.state
+  return st === 'local_draft' || st === 'in_progress'
+})
+const isReadyToComplete = computed(() => {
+  const st = activeTransfer.value?.state
+  return st === 'draft' && activeTransfer.value?.has_picking
+})
+const isCompleted = computed(() => activeTransfer.value?.state === 'done')
+// 3PL local_draft：全部 reqQty > 0 的品項都已 pickQty >= reqQty
+const isFullyPicked = computed(() => {
+  if (!activeTransfer.value || !isLocalDraft.value) return false
+  const groups = activeTransfer.value.groups_data || []
+  if (groups.length === 0) return false
+  let hasItems = false
+  for (const g of groups) {
+    for (const i of (g.items || [])) {
+      const req = parseInt(i.reqQty) || 0
+      const pick = parseInt(i.pickQty) || 0
+      if (req > 0) {
+        hasItems = true
+        if (pick < req) return false
+      }
+    }
+  }
+  return hasItems
+})
+// 3PL 點貨：逐件檢查。countingReady = 全部已點, anyCounted = 至少一件已點
+const countingReady = computed(() => activeTransfer.value?.counting_ready !== false)
+const anyCounted = computed(() => activeTransfer.value?.any_counted !== false)
+// 非 3PL 或 done/cut → 整張鎖（不可編輯）
+const isLocked = computed(() => {
+  const st = activeTransfer.value?.state
+  if (st === 'done' || st === 'cut') return true
+  return false
+})
+// 逐件鎖 — 3PL local draft 中未點貨的 item
+function isItemLocked(item) {
+  if (isLocked.value) return true
+  if (isReadyToComplete.value) return true   // 非 3PL 全部 read-only
+  if (isLocalDraft.value && !item.item_counted) return true
+  return false
+}
 
 const groupStatsCur = computed(() => {
   const g = curGroup.value
@@ -164,8 +250,9 @@ function progressClass(pct) {
 
 function trStateBadge(st) {
   const m = {
-    draft:       { l: '待處理', cls: 'bg-slate-100 text-slate-500' },
-    in_progress: { l: '進行中', cls: 'bg-amber-100 text-amber-800' },
+    local_draft: { l: '揀貨中', cls: 'bg-purple-100 text-purple-800' },
+    draft:       { l: '待完成', cls: 'bg-slate-100 text-slate-500' },
+    in_progress: { l: '揀貨中', cls: 'bg-purple-100 text-purple-800' },
     done:        { l: '已完成', cls: 'bg-emerald-100 text-emerald-800' },
     cut:         { l: '已截單', cls: 'bg-orange-100 text-orange-800' },
   }
@@ -173,29 +260,46 @@ function trStateBadge(st) {
 }
 
 function isCutTr(tr) {
-  return tr.state === 'cut' || !!tr.parent_transfer_id
+  // Only "second-round" REAL TRs that were spawned from a cutoff (have a parent).
+  // Do NOT flag the original local draft that reaches state='cut' — those are hidden from the list anyway.
+  return !!tr.parent_transfer_id
 }
 
 // ============================================================
 // 加载 PO + TR list
 // ============================================================
+// Detect whether input is a PO name (starts P + digits) or a TR/picking name
+function _looksLikePO(v) {
+  return /^P\d/i.test(v)
+}
+
 async function searchPO() {
   const v = poInput.value.trim()
-  if (!v) { showToast('請輸入 PO Number', 'error'); return }
+  if (!v) { showToast('請輸入 PO / TR Number', 'error'); return }
+  if (_looksLikePO(v)) {
+    await _loadByPO(v)
+  } else {
+    await _loadByTRName(v)
+  }
+}
+
+async function _loadByPO(poName) {
   loading.value = true
   try {
-    const res = await poApi.listTransfers(v)
+    const res = await poApi.listTransfers(poName)
     curPO.value = res.po_name
     poInfo.partner_name = res.partner_name || ''
     poInfo.state = res.state || ''
     trList.value = res.transfers || []
+    uncoveredLines.value = res.uncovered_lines || []
+    incomingState.value = res.incoming_state || 'none'
     view.value = 'trlist'
   } catch (err) {
     if (err.handledByInterceptor) return
     const status = err.response?.status
     const data = err.response?.data || {}
     if (status === 404) {
-      showToast(`❌ 找不到 PO「${v}」`, 'error')
+      showToast(`❌ 找不到 PO「${poName}」`, 'error')
     } else if (status === 422) {
       showToast(`⚠️ ${data.detail || `此 PO 狀態（${data.state}）不允許操作`}`, 'warning')
     } else if (status === 403) {
@@ -208,19 +312,184 @@ async function searchPO() {
   }
 }
 
+async function _loadByTRName(name) {
+  // Direct TR or replenishment picking lookup — go straight to trdetail
+  loading.value = true
+  try {
+    const res = await poApi.lookupTransferByName(name)
+    curPO.value = res.po_name || name
+    poInfo.partner_name = res.partner_name || ''
+    poInfo.state = ''
+    trList.value = res.transfers || []
+    uncoveredLines.value = []
+    incomingState.value = res.transfer?.has_picking ? 'done' : 'none'
+    // Jump directly to detail (there's exactly one TR)
+    if (res.transfer) {
+      activeTransfer.value = res.transfer
+      dirty.value = false
+      view.value = 'trdetail'
+    } else {
+      view.value = 'trlist'
+    }
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    const status = err.response?.status
+    const data = err.response?.data || {}
+    if (status === 404) {
+      showToast(`❌ 找不到 TR 或 Picking「${name}」`, 'error')
+    } else if (status === 422) {
+      showToast(`⚠️ ${data.detail || '此 TR 無法操作'}`, 'warning')
+    } else if (status === 403) {
+      showToast(data.detail || '此功能僅限內部員工', 'error')
+    } else {
+      showToast(data.error || '載入失敗', 'error')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+// Print pick list for a TR (all items, 100×150mm per item)
+async function printPickListForTR(tr) {
+  printingPicklist.value = true
+  try {
+    // Resolve the actual TR id (handle virtual / activeTransfer fallback)
+    let trId = tr?.id
+    if (!trId && tr?.is_virtual && tr?.name) {
+      // Wrap virtual picking first to get a real id
+      const res = await poApi.lookupTransferByName(tr.name)
+      trId = res.transfer?.id
+    }
+    if (!trId) trId = activeTransfer.value?.id
+    if (!trId) { showToast('找不到 TR', 'error'); return }
+    // FEFO-split labels from backend
+    const res = await poApi.getTransferPicklist(trId)
+    const labels = res?.labels || []
+    if (!labels.length) { showToast('沒有品項可列印', 'warning'); return }
+    // 1) 先試 Bartender（如配置咗）→ 直接出機，不彈 dialog
+    const okBT = await printToBartender(labels, { template: 'pick_list_100x150' })
+    if (okBT) { showToast('✅ 已送去 Bartender 列印', 'success'); return }
+    // 2) Fallback：瀏覽器 iframe 印（PDF dialog）
+    printPickList(labels)
+  } catch (e) {
+    showToast('列印揀貨單失敗', 'error')
+  } finally {
+    printingPicklist.value = false
+  }
+}
+
+// Auto-print label when worker confirms a pickQty
+//   - 先試 Bartender（如配置） → 直接出 TSC TE310
+//   - 失敗或未配置 → fallback 瀏覽器 iframe 印
+//
+//   邏輯：
+//   - 條碼結尾係字母 (e.g. 64966a) → repack 標籤
+//   - 同時查 Label Master → 有食品/保健 label 一齊印
+//   - 兩種情況可疊加（repack 包裝盒要貼自己嘅條碼，仲要貼營養成份）
+async function onPickQtyBlur(item) {
+  const qty = parseInt(item.pickQty) || 0
+  if (qty <= 0) return
+  const barcode = item.barcode || ''
+  if (!barcode) return
+
+  const isRepack = /[A-Za-z]$/.test(barcode)
+
+  // ── 1) Repack label（如條碼結尾係字母）──
+  if (isRepack) {
+    const labelData = [{ barcode, name: item.name || '', sku: item.sku || '' }]
+    const okBT = await printToBartender(labelData, { template: 'repack_label_70x50', copies: qty })
+    if (!okBT) printRepackLabels({ barcode, name: item.name || '' }, qty)
+  }
+
+  // ── 2) Label Master（食品/保健/特殊…）── 任何 barcode 都試查
+  try {
+    const res = await labelsApi.lookupByBarcode(barcode)
+    const lbls = res?.labels || []
+    if (!lbls.length) return   // 冇 master → 已 print repack（or nothing），收工
+    const okBT = await printToBartender(lbls, { template: 'label_master', copies: qty })
+    if (!okBT) printLabels(lbls, qty)
+  } catch (e) {
+    // 404 = barcode 唔喺 master → 唔係 error，靜靜地 skip
+    if (e?.response?.status !== 404) {
+      console.warn('[auto-print] label lookup failed:', e?.message)
+    }
+  }
+}
+
+// Debounce 自動列印：員工打數時等 800ms 無新 keystroke 先 trigger
+const _autoPrintTimers = new Map()
+function scheduleAutoPrint(item) {
+  const key = item.po_line_id || item.sku || item.barcode
+  if (_autoPrintTimers.has(key)) clearTimeout(_autoPrintTimers.get(key))
+  _autoPrintTimers.set(key, setTimeout(() => {
+    _autoPrintTimers.delete(key)
+    onPickQtyBlur(item)
+  }, 800))
+}
+
+// Manual reprint button — same logic as auto-print
+async function reprintItemLabels(item) {
+  await onPickQtyBlur(item)
+}
+
+// Print label for a whole group from the trdetail list (uses first item's barcode)
+async function printGroupLabel(g) {
+  const item = (g.items || [])[0]
+  if (!item) return
+  const qty = parseInt(item.pickQty) || 0
+  if (qty <= 0) { showToast('請先輸入揀貨數量', 'warning'); return }
+  const barcode = item.barcode || ''
+  if (!barcode) { showToast('此品項沒有 Barcode', 'warning'); return }
+
+  const isRepack = /[A-Za-z]$/.test(barcode)
+  let printed = false
+
+  if (isRepack) {
+    const labelData = [{ barcode, name: item.name || '', sku: item.sku || '' }]
+    const okBT = await printToBartender(labelData, { template: 'repack_label_70x50', copies: qty })
+    if (!okBT) printRepackLabels({ barcode, name: item.name || '' }, qty)
+    printed = true
+  }
+  try {
+    const res = await labelsApi.lookupByBarcode(barcode)
+    const lbls = res?.labels || []
+    if (lbls.length) {
+      const okBT = await printToBartender(lbls, { template: 'label_master', copies: qty })
+      if (!okBT) printLabels(lbls, qty)
+      printed = true
+    }
+  } catch (e) {
+    if (e?.response?.status !== 404) {
+      showToast('取得標籤資料失敗', 'error')
+      return
+    }
+  }
+  if (!printed) showToast('此品項沒有標籤資料', 'warning')
+}
+
 async function generateTRs() {
   if (!curPO.value) return
   loading.value = true
   try {
     const res = await poApi.generateTransfers(curPO.value)
-    trList.value = res.transfers || []
-    showToast(`✅ 已生成 ${res.count} 張 Transfer Order`, 'success')
+    // 成功生成 — 全量刷新列表（含新增 + 已有 TR）
+    await reloadTRList()
+    const skipped = res.skipped || []
+    const count = res.count || 0
+    if (skipped.length > 0) {
+      showToast(`✅ 已生成 ${count} 張 TR，${skipped.length} 個 SKU 暫被跳過`, 'success')
+    } else {
+      showToast(`✅ 已生成 ${count} 張 Transfer Order`, 'success')
+    }
   } catch (err) {
     if (err.handledByInterceptor) return
     const status = err.response?.status
     const data = err.response?.data || {}
     if (status === 409) {
       showToast(data.detail || '已生成過，請刷新查看', 'warning')
+      await reloadTRList()
+    } else if (status === 422 && data.error === 'all_skipped') {
+      showToast('⚠️ 所有待處理行仍不符條件（未點貨或點貨不足），無法生成補充 TR', 'warning')
       await reloadTRList()
     } else if (status === 422) {
       showToast(data.detail || '無分配方案，請先去 M3b 收貨分配錄入', 'warning')
@@ -237,6 +506,8 @@ async function reloadTRList() {
   try {
     const res = await poApi.listTransfers(curPO.value)
     trList.value = res.transfers || []
+    uncoveredLines.value = res.uncovered_lines || []
+    incomingState.value = res.incoming_state || 'none'
   } catch {
     /* 静默 */
   }
@@ -286,6 +557,9 @@ function goBack() {
     view.value = 'search'
     curPO.value = null
     trList.value = []
+    uncoveredLines.value = []
+    incomingState.value = 'none'
+    receiveResult.value = null
     trSearch.value = ''
   }
 }
@@ -368,7 +642,12 @@ async function saveTR(opts = {}) {
       // 用服务器返回的最新数据更新 activeTransfer（含新 last_modified_at + state + stats）
       activeTransfer.value = res.transfer
       dirty.value = false
-      showToast('✅ 已儲存', 'success')
+      if (res.warning) {
+        // 儲存成功但 picking validate 失敗（庫存不足 / 未收貨）
+        showToast(`❌ 已儲存，但無法完成出庫：${res.warning}`, 'error', 6000)
+      } else {
+        showToast('✅ 已儲存', 'success')
+      }
       if (opts.afterSave === 'back') {
         view.value = 'trlist'
         activeTransfer.value = null
@@ -466,22 +745,18 @@ function cancelConflict() {
 }
 
 // ============================================================
-// 截單
+// 截單出貨（3PL local draft → 真正 Odoo TR）
 // ============================================================
 function handleCut() {
   if (!activeTransfer.value) return
-  let anyPicked = false, anyRemaining = false
+  let anyPicked = false
   ;(activeTransfer.value.groups_data || []).forEach(g =>
     (g.items || []).forEach(i => {
-      const pick = parseInt(i.pickQty) || 0
-      const req = parseInt(i.reqQty) || 0
-      if (pick > 0) anyPicked = true
-      if (req - pick > 0) anyRemaining = true
+      if ((parseInt(i.pickQty) || 0) > 0) anyPicked = true
     }),
   )
-  if (!anyPicked)    { showToast('尚未揀貨，無法截單', 'warning'); return }
-  if (!anyRemaining) { showToast('已全部揀完，無需截單', 'warning'); return }
-  if (dirty.value && !confirm('當前 TR 有未儲存的修改，建議先儲存再截單。是否繼續截單？')) return
+  if (!anyPicked) { showToast('尚未揀貨，無法截單出貨', 'warning'); return }
+  if (dirty.value && !confirm('有未儲存的修改，建議先儲存。是否繼續？')) return
   showCutModal.value = true
 }
 
@@ -493,14 +768,17 @@ async function executeCut() {
   if (dirty.value) {
     await saveTR({ silent: true })
     if (dirty.value) {
-      // save 失败（比如冲突）— 不继续
       showCutModal.value = false
       return
     }
   }
   cutting.value = true
   try {
-    const res = await poApi.cutTransfer(activeTransfer.value.id)
+    // 3PL local_draft → cutoff endpoint
+    const isLocal = activeTransfer.value.is_local_draft
+    const res = isLocal
+      ? await poApi.cutoffTransfer(activeTransfer.value.id)
+      : await poApi.cutTransfer(activeTransfer.value.id)
     showToast(`✓ 截單成功！已產生 ${res.new_transfer.name}`, 'success')
     showCutModal.value = false
     setTimeout(() => {
@@ -518,6 +796,43 @@ async function executeCut() {
 }
 
 // ============================================================
+// Complete（完成 Transfer — 非 3PL 或 3PL 截單後）
+// ============================================================
+async function doComplete() {
+  if (completing.value || !activeTransfer.value) return
+  // 3PL local_draft 一鍵完成前先儲存（確保 pickQty 最新）
+  if (isLocalDraft.value && dirty.value) {
+    await saveTR({ silent: true })
+    if (dirty.value) {
+      showCompleteModal.value = false
+      return
+    }
+  }
+  completing.value = true
+  try {
+    const res = await poApi.completeTransfer(activeTransfer.value.id)
+    activeTransfer.value = res.transfer
+    showCompleteModal.value = false
+    const msg = isLocalDraft.value
+      ? `✅ 已截單並完成出庫！(${res.transfer?.name || ''})`
+      : '✅ Transfer 已完成！'
+    showToast(msg, 'success')
+    setTimeout(() => {
+      view.value = 'trlist'
+      activeTransfer.value = null
+      reloadTRList()
+    }, 800)
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    const data = err.response?.data || {}
+    showCompleteModal.value = false
+    showToast(data.detail || data.error || '完成失敗', 'error', 6000)
+  } finally {
+    completing.value = false
+  }
+}
+
+// ============================================================
 // 扫码相机（占位）
 // ============================================================
 function openScanner()  { scannerOpen.value = true }
@@ -531,6 +846,40 @@ function exportTR() {
 }
 function exportAllTR() {
   showToast('✓ 匯出功能待實作', 'info')
+}
+
+// ============================================================
+// 收貨入庫
+// ============================================================
+async function doReceive() {
+  if (receiving.value || !curPO.value) return
+  receiving.value = true
+  try {
+    const res = await poApi.receivePO(curPO.value)
+    receiveResult.value = res
+    showReceiveModal.value = false
+    showToast(`✅ 收貨完成！${res.picking_name}`, 'success')
+    await reloadTRList()
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    const status = err.response?.status
+    const data = err.response?.data || {}
+    if (status === 422 && data.error === 'already_received') {
+      showToast(`此 PO 已完成收貨 (${data.picking_name})`, 'warning')
+      incomingState.value = 'done'
+    } else if (status === 422 && data.error === 'no_counting_data') {
+      showToast(data.detail || '所有品項都未點貨', 'warning')
+    } else if (status === 422) {
+      showToast(data.detail || '無法收貨', 'warning')
+    } else if (status === 409) {
+      showToast(data.detail || '其他用戶正在收貨', 'warning')
+    } else {
+      showToast(data.error || data.detail || '收貨失敗', 'error')
+    }
+  } finally {
+    receiving.value = false
+    showReceiveModal.value = false
+  }
 }
 
 // ============================================================
@@ -552,9 +901,30 @@ function _onBeforeUnload(e) {
   e.returnValue = ''
 }
 
+const _route = useRoute()
+const _router = useRouter()
+
+async function _autoLoadFromQuery() {
+  const poName = (_route.query?.po || '').toString().trim()
+  const trName = (_route.query?.tr || '').toString().trim()
+  if (!poName && !trName) return
+  if (poName && curPO.value === poName) return
+  if (trName && curPO.value === trName) return
+  _router.replace({ name: _route.name, query: {} })
+  if (poName) {
+    poInput.value = poName
+    await _loadByPO(poName)
+  } else {
+    poInput.value = trName
+    await _loadByTRName(trName)
+  }
+}
+
 onMounted(() => {
   window.addEventListener('beforeunload', _onBeforeUnload)
+  _autoLoadFromQuery()
 })
+onActivated(_autoLoadFromQuery)
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', _onBeforeUnload)
 })
@@ -583,13 +953,13 @@ onBeforeUnmount(() => {
           class="rounded-3xl p-6 px-8"
           style="background:rgba(255,255,255,.1);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.1);box-shadow:0 25px 50px rgba(0,0,0,.25);"
         >
-          <label class="block text-[11px] font-bold tracking-widest mb-3" style="color:rgba(196,181,253,.7);">PO NUMBER</label>
+          <label class="block text-[11px] font-bold tracking-widest mb-3" style="color:rgba(196,181,253,.7);">PO / TR Number</label>
           <input
             v-model="poInput"
             @keydown.enter="searchPO"
             class="w-full px-5 py-4 rounded-2xl text-white text-xl font-bold text-center outline-none mb-4"
             style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);"
-            placeholder="輸入 PO Number..."
+            placeholder="輸入 PO / TR / WH/OUT/... Number..."
             :disabled="loading"
           />
           <button
@@ -641,6 +1011,20 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- 收貨狀態 -->
+    <div class="px-4 pt-3 flex-shrink-0">
+      <div v-if="incomingState === 'done'" class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-sm text-emerald-700 font-semibold flex items-center gap-2">
+        ✅ 已完成收貨入庫
+      </div>
+      <button
+        v-else
+        class="w-full py-3.5 text-white border-0 rounded-2xl font-bold text-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+        style="background:linear-gradient(90deg,#059669,#10b981);box-shadow:0 8px 24px rgba(5,150,105,.3);"
+        :disabled="receiving"
+        @click="showReceiveModal = true"
+      >{{ receiving ? '處理中…' : incomingState === 'partial' ? '📦 繼續收貨 (部分已收)' : '📦 收貨入庫' }}</button>
+    </div>
+
     <!-- 没 TR：显示生成按钮 -->
     <div v-if="trList.length === 0" class="flex-1 flex items-center justify-center p-8">
       <div class="text-center max-w-md">
@@ -672,26 +1056,41 @@ onBeforeUnmount(() => {
         <div class="flex flex-col gap-3 max-w-lg mx-auto">
           <div
             v-for="tr in filteredTRs"
-            :key="tr.id"
-            class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden cursor-pointer transition-all hover:-translate-y-px"
-            @click="openTR(tr.id)"
+            :key="tr.id || tr.name"
+            class="bg-white rounded-2xl shadow-sm border overflow-hidden cursor-pointer transition-all hover:-translate-y-px"
+            :class="tr.is_replenishment ? 'border-teal-200 ring-1 ring-teal-100'
+                  : tr.highlight       ? 'border-amber-300 ring-1 ring-amber-200'
+                  : 'border-gray-100'"
+            @click="tr.id ? openTR(tr.id) : _loadByTRName(tr.name)"
           >
             <div class="px-5 py-4">
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-3">
                   <div
                     class="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow"
-                    :style="{ background: trStats(tr).done_groups === trStats(tr).groups && trStats(tr).groups > 0
+                    :style="{ background: tr.state === 'done'
                       ? 'linear-gradient(135deg,#34d399,#059669)'
-                      : trStats(tr).total_pick > 0
-                        ? 'linear-gradient(135deg,#818cf8,#7c3aed)'
-                        : 'linear-gradient(135deg,#d1d5db,#9ca3af)' }"
-                  >🚚</div>
+                      : tr.is_replenishment
+                        ? 'linear-gradient(135deg,#5eead4,#0d9488)'
+                        : tr.is_local_draft
+                          ? 'linear-gradient(135deg,#a78bfa,#7c3aed)'
+                          : trStats(tr).total_pick > 0
+                            ? 'linear-gradient(135deg,#818cf8,#7c3aed)'
+                            : 'linear-gradient(135deg,#d1d5db,#9ca3af)' }"
+                  >{{ tr.is_replenishment ? '🔄' : tr.is_local_draft ? '📝' : '🚚' }}</div>
                   <div>
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="font-bold text-[15px] text-slate-800">{{ tr.name }}</span>
                       <span
-                        v-if="isCutTr(tr)"
+                        v-if="tr.is_replenishment"
+                        class="text-[11px] px-2 py-px rounded-xl font-bold border bg-teal-50 text-teal-700 border-teal-200"
+                      >補貨</span>
+                      <span
+                        v-if="tr.parent_ref"
+                        class="text-[11px] px-2 py-px rounded-xl font-bold border bg-purple-50 text-purple-700 border-purple-200"
+                      >Ref: {{ tr.parent_ref }}</span>
+                      <span
+                        v-else-if="isCutTr(tr)"
                         class="text-[11px] px-2 py-px rounded-xl font-bold border"
                         style="background:linear-gradient(90deg,#fef3c7,#fed7aa);color:#c2410c;border-color:#fdba74;"
                       >第二轉</span>
@@ -713,18 +1112,61 @@ onBeforeUnmount(() => {
                 <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden flex-1">
                   <div
                     class="h-full rounded-full transition-[width] duration-500"
-                    :class="progressClass(trStats(tr).total_req > 0 ? Math.round(trStats(tr).total_pick / trStats(tr).total_req * 100) : 0)"
-                    :style="{ width: (trStats(tr).total_req > 0 ? Math.min(Math.round(trStats(tr).total_pick / trStats(tr).total_req * 100), 100) : 0) + '%' }"
+                    :class="progressClass(trPct(tr))"
+                    :style="{ width: Math.min(trPct(tr), 100) + '%' }"
                   ></div>
                 </div>
                 <span
                   class="text-xs font-bold"
-                  :style="{ color: (trStats(tr).total_req > 0 ? Math.round(trStats(tr).total_pick / trStats(tr).total_req * 100) : 0) >= 100 ? '#059669' : '#64748b' }"
-                >{{ trStats(tr).total_req > 0 ? Math.round(trStats(tr).total_pick / trStats(tr).total_req * 100) : 0 }}%</span>
+                  :style="{ color: trPct(tr) >= 100 ? '#059669' : '#64748b' }"
+                >{{ trPct(tr) }}%</span>
+              </div>
+              <!-- Print pick list button (3PL TRs only) -->
+              <div v-if="tr.dest_warehouse === '3PL'" class="mt-2.5 flex justify-end" @click.stop>
+                <button
+                  class="px-3 py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer disabled:opacity-50"
+                  style="background:#f0fdf4;color:#059669;border-color:#bbf7d0;"
+                  :disabled="printingPicklist"
+                  @click.stop="printPickListForTR(tr)"
+                  title="列印揀貨單 (100×150mm)"
+                >{{ printingPicklist ? '…' : '🖨️ 揀貨單' }}</button>
               </div>
             </div>
           </div>
           <div v-if="!filteredTRs.length" class="text-center text-slate-400 py-12 text-sm">沒有符合的單據</div>
+
+          <!-- 未覆蓋行區塊 — 補充 TR -->
+          <div v-if="hasUncovered" class="mt-4 rounded-2xl border-2 border-amber-200 bg-amber-50 overflow-hidden">
+            <div class="px-4 py-3 bg-amber-100/60 border-b border-amber-200 flex items-center justify-between">
+              <div>
+                <span class="text-sm font-bold text-amber-800">⚠️ {{ uncoveredLines.length }} 個 SKU 未加入 Transfer</span>
+                <p class="text-xs text-amber-600 mt-0.5">已分配但尚未加入任何 TR</p>
+              </div>
+              <button
+                class="px-4 py-2 text-white border-0 rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50"
+                style="background:linear-gradient(90deg,#f59e0b,#d97706);box-shadow:0 4px 12px rgba(245,158,11,.3);"
+                :disabled="loading"
+                @click="generateTRs"
+              >{{ loading ? '生成中…' : `⚡ 生成補充 TR (${uncoveredLines.length})` }}</button>
+            </div>
+            <div class="divide-y divide-amber-100">
+              <div
+                v-for="line in uncoveredLines"
+                :key="line.po_line_id"
+                class="px-4 py-2.5 flex items-center gap-3"
+              >
+                <span class="flex-shrink-0 w-2 h-2 rounded-full bg-emerald-400"></span>
+                <div class="flex-1 min-w-0">
+                  <span class="text-sm font-semibold text-slate-700">{{ line.sku || '—' }}</span>
+                  <span class="text-xs text-slate-500 ml-2 truncate">{{ line.name }}</span>
+                </div>
+                <div class="text-right flex-shrink-0">
+                  <div class="text-xs text-slate-500">PO {{ line.qty }}</div>
+                  <div class="text-[11px] mt-0.5 text-emerald-600">✓ 可生成</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -742,19 +1184,28 @@ onBeforeUnmount(() => {
           <span v-if="dirty" class="ml-1 px-1.5 py-px rounded text-[10px] font-bold" style="background:#fbbf24;color:#78350f;">● 未儲存</span>
         </p>
       </div>
+      <!-- 揀貨單快捷列印（3PL 模式） -->
+      <button
+        v-if="isLocalDraft"
+        class="px-2.5 py-2 rounded-xl text-white cursor-pointer text-xs font-bold disabled:opacity-50"
+        style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
+        :disabled="printingPicklist"
+        @click="printPickListForTR(null)"
+        title="列印揀貨單 (100×150mm)"
+      >{{ printingPicklist ? '…' : '🖨️' }}</button>
       <button
         class="px-3 py-2 rounded-xl text-white cursor-pointer"
         style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
         @click="refreshNow"
       >🔄</button>
-      <div class="text-right px-3 py-1 rounded-xl" style="background:rgba(255,255,255,.1);">
+      <div v-if="isLocalDraft" class="text-right px-3 py-1 rounded-xl" style="background:rgba(255,255,255,.1);">
         <div class="text-xl font-black leading-none" style="color:#fdba74;">{{ detailStats.bx }}</div>
         <div class="text-[11px] mt-0.5" style="color:rgba(167,139,250,.4);">箱</div>
       </div>
     </div>
 
-    <!-- 进度 -->
-    <div class="bg-white border-b border-gray-100 px-4 py-3 flex-shrink-0">
+    <!-- 进度 — 3PL 顯示揀貨進度 -->
+    <div v-if="isLocalDraft" class="bg-white border-b border-gray-100 px-4 py-3 flex-shrink-0">
       <div class="flex justify-between text-xs text-slate-500 mb-2">
         <span>揀貨進度 <strong class="text-slate-700">{{ detailStats.pk }}/{{ detailStats.rq }}</strong></span>
         <span class="font-bold text-sm" :style="{ color: detailPct >= 100 ? '#059669' : '#4f46e5' }">{{ detailPct }}%</span>
@@ -768,13 +1219,33 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <!-- 非 3PL：品項總數 -->
+    <div v-if="!isLocalDraft && !isCompleted && activeTransfer?.state !== 'cut'" class="bg-white border-b border-gray-100 px-4 py-3 flex-shrink-0">
+      <div class="text-xs text-slate-500">共 <strong class="text-slate-700">{{ detailStats.total }}</strong> 個品項，需求合計 <strong class="text-slate-700">{{ detailStats.rq }}</strong></div>
+    </div>
+
     <!-- 已截单提示 -->
     <div v-if="activeTransfer?.state === 'cut'" class="bg-orange-50 border-b border-orange-200 px-4 py-3 text-xs font-semibold text-orange-700">
       ⚠️ 此 TR 已截單，已鎖定不可修改。剩餘部分請去新建的「第二轉」TR 處理。
     </div>
 
-    <!-- 扫码 -->
-    <div class="px-4 py-3 border-b border-gray-200 flex-shrink-0" style="background:linear-gradient(180deg,#f3f4f6,#f9fafb);">
+    <!-- 已完成提示 -->
+    <div v-if="isCompleted" class="bg-emerald-50 border-b border-emerald-200 px-4 py-3 text-sm font-semibold text-emerald-700 flex items-center gap-2">
+      ✅ 此 Transfer 已完成出庫
+    </div>
+
+    <!-- 待完成提示（非 3PL 或 3PL 截單後）-->
+    <div v-if="isReadyToComplete" class="bg-blue-50 border-b border-blue-200 px-4 py-3 text-xs font-semibold text-blue-700 flex items-center gap-2">
+      📋 此 Transfer 待完成出庫。確認收貨後可按底部「完成」按鈕。
+    </div>
+
+    <!-- 3PL 點貨提示：全部未點 / 部分已點 -->
+    <div v-if="isLocalDraft && !countingReady" class="bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm font-semibold text-amber-700 flex items-center gap-2">
+      {{ anyCounted ? '⏳ 部分貨物尚未點貨，未點的品項暫時鎖定。' : '⏳ 等待點貨 — 貨物尚未完成點貨，暫時無法開始揀貨。' }}
+    </div>
+
+    <!-- 扫码（仅 3PL 揀貨模式 + 至少一件已點貨）-->
+    <div v-if="isLocalDraft && anyCounted" class="px-4 py-3 border-b border-gray-200 flex-shrink-0" style="background:linear-gradient(180deg,#f3f4f6,#f9fafb);">
       <button
         class="m3c-pulse w-full h-14 mb-2.5 text-white border-0 rounded-2xl font-bold text-[15px] cursor-pointer flex items-center justify-center gap-3"
         style="background:linear-gradient(90deg,#f97316,#ec4899);box-shadow:0 8px 24px rgba(249,115,22,.2);"
@@ -797,26 +1268,36 @@ onBeforeUnmount(() => {
       >⚠ {{ bcError }}</div>
     </div>
 
-    <!-- 表头 -->
-    <div class="flex items-center px-4 py-2 border-b border-gray-200 text-[11px] font-bold tracking-wider flex-shrink-0" style="background:rgba(241,245,249,.8);color:#94a3b8;">
+    <!-- 表头 — 3PL 揀貨模式 -->
+    <div v-if="isLocalDraft" class="flex items-center px-4 py-2 border-b border-gray-200 text-[11px] font-bold tracking-wider flex-shrink-0" style="background:rgba(241,245,249,.8);color:#94a3b8;">
       <div class="flex-1">品項</div>
       <div class="w-11 text-center">需求</div>
       <div class="w-11 text-center ml-2">揀貨</div>
       <div class="w-11 text-center ml-2">箱</div>
       <div class="w-8 text-center ml-1">狀態</div>
+      <div class="w-8 ml-1"></div>
+    </div>
+    <!-- 表头 — 非 3PL（SD4/WS/SAMPL 等）: 只有品項 + 數量 -->
+    <div v-else class="flex items-center px-4 py-2 border-b border-gray-200 text-[11px] font-bold tracking-wider flex-shrink-0" style="background:rgba(241,245,249,.8);color:#94a3b8;">
+      <div class="flex-1">品項</div>
+      <div class="w-14 text-center">數量</div>
     </div>
 
-    <!-- 品项列表 -->
-    <div class="flex-1 overflow-y-auto">
+    <!-- 品项列表 — 3PL 揀貨模式 -->
+    <div v-if="isLocalDraft" class="flex-1 overflow-y-auto">
       <div
         v-for="(g, gi) in curGroups"
         :key="g.id"
         class="flex items-center px-4 py-3.5 border-b border-gray-100 cursor-pointer transition-colors"
-        :class="groupStatus(g) === 'done' ? 'bg-emerald-50/60' : 'bg-white hover:bg-slate-50'"
+        :class="[
+          groupStatus(g) === 'done' ? 'bg-emerald-50/60' : 'bg-white hover:bg-slate-50',
+          (g.items || []).some(i => !i.item_counted) ? 'opacity-50' : ''
+        ]"
         @click="openItem(gi)"
       >
         <div class="flex-1 min-w-0 pr-2">
           <div class="flex items-center gap-1.5 mb-0.5">
+            <span v-if="(g.items || []).some(i => !i.item_counted)" class="shrink-0 text-sm">🔒</span>
             <span class="font-bold text-sm text-slate-800 truncate">{{ g.displayName }}</span>
             <span
               v-if="(g.items || []).some(i => i.is_bom)"
@@ -854,18 +1335,58 @@ onBeforeUnmount(() => {
           >!</div>
           <div v-else class="w-7 h-7 rounded-full border-2 border-slate-200 bg-slate-50"></div>
         </div>
+        <!-- 列印標籤快捷鍵：有 pickQty 時顯示 -->
+        <button
+          v-if="(g.items || []).some(i => (parseInt(i.pickQty)||0) > 0)"
+          class="w-8 flex items-center justify-center ml-1 shrink-0 bg-transparent border-0 cursor-pointer text-base leading-none"
+          title="列印標籤"
+          @click.stop="printGroupLabel(g)"
+        >🖨️</button>
+        <div v-else class="w-8 ml-1 shrink-0"></div>
       </div>
     </div>
 
-    <!-- 底部操作 -->
-    <div class="flex-shrink-0 bg-white border-t border-gray-200 px-4 sm:px-5 py-4 flex flex-col gap-3 safe-pb">
+    <!-- 品项列表 — 非 3PL（SD4/WS/SAMPL 等）: 只讀顯示數量 -->
+    <div v-else class="flex-1 overflow-y-auto">
+      <div
+        v-for="(g, gi) in curGroups"
+        :key="g.id"
+        class="flex items-center px-4 py-3.5 border-b border-gray-100 bg-white"
+      >
+        <div class="flex-1 min-w-0 pr-2">
+          <div class="flex items-center gap-1.5 mb-0.5">
+            <span class="font-bold text-sm text-slate-800 truncate">{{ g.displayName }}</span>
+            <span
+              v-if="(g.items || []).some(i => i.is_bom)"
+              class="shrink-0 text-[10px] px-1.5 py-px rounded-md font-bold border"
+              style="background:linear-gradient(90deg,#fed7aa,#fce7f3);color:#c2410c;border-color:#fdba74;"
+            >BOM</span>
+          </div>
+          <div class="text-[11px] text-slate-400 truncate">{{ g.displaySku }}{{ g.labelType ? ' · ' + g.labelType : '' }}</div>
+        </div>
+        <div class="w-14 text-center text-sm font-black text-slate-700">{{ (g.items || []).reduce((a,i) => a+(parseInt(i.reqQty)||0), 0) }}</div>
+      </div>
+    </div>
+
+    <!-- 底部操作 — 3PL 揀貨模式 -->
+    <div v-if="isLocalDraft" class="flex-shrink-0 bg-white border-t border-gray-200 px-4 sm:px-5 py-4 flex flex-col gap-3 safe-pb">
+      <!-- 全部揀完：一鍵截單並完成出庫 -->
       <button
-        v-if="activeTransfer?.state !== 'cut' && activeTransfer?.state !== 'done'"
+        v-if="isFullyPicked"
+        class="w-full py-3.5 rounded-2xl font-bold text-[15px] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+        style="background:linear-gradient(90deg,#059669,#10b981);box-shadow:0 8px 24px rgba(5,150,105,.3);color:#fff;border:none;"
+        :disabled="completing || saving"
+        @click="showCompleteModal = true"
+      >{{ completing ? '處理中…' : '✅ 完成出庫' }}</button>
+      <!-- 截單出貨：部分出貨或強制分批 -->
+      <!-- 截單出貨：只限 PO TR（補貨 TR 已有 picking，唔需要 cutoff） -->
+      <button
+        v-if="!activeTransfer?.is_replenishment"
         class="w-full py-3.5 rounded-2xl font-bold text-[15px] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
         style="border:2px solid #fbbf24;background:linear-gradient(90deg,#fffbeb,#fff7ed);color:#b45309;"
-        :disabled="cutting"
+        :disabled="cutting || !anyCounted"
         @click="handleCut"
-      >✂️ 截單 — 拆分為兩轉出貨</button>
+      >✂️ 截單出貨</button>
       <div class="flex gap-3">
         <button
           class="flex-1 py-4 rounded-2xl font-bold text-[15px] cursor-pointer flex items-center justify-center gap-2 bg-transparent"
@@ -875,10 +1396,34 @@ onBeforeUnmount(() => {
         <button
           class="flex-1 py-4 text-white border-0 rounded-2xl font-bold text-[15px] cursor-pointer disabled:opacity-50"
           style="background:linear-gradient(90deg,#4f46e5,#7c3aed);box-shadow:0 8px 24px rgba(79,70,229,.2);"
-          :disabled="saving || activeTransfer?.state === 'cut' || activeTransfer?.state === 'done'"
+          :disabled="saving || !anyCounted"
           @click="saveTR({ afterSave: 'back' })"
         >{{ saving ? '⏳' : '💾 儲存單據' }}</button>
       </div>
+    </div>
+
+    <!-- 底部操作 — 待完成模式（非 3PL 或 3PL 截單後）-->
+    <div v-else-if="isReadyToComplete" class="flex-shrink-0 bg-white border-t border-gray-200 px-4 sm:px-5 py-4 flex flex-col gap-3 safe-pb">
+      <button
+        class="w-full py-4 text-white border-0 rounded-2xl font-bold text-[15px] cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+        style="background:linear-gradient(90deg,#059669,#10b981);box-shadow:0 8px 24px rgba(5,150,105,.3);"
+        :disabled="completing"
+        @click="showCompleteModal = true"
+      >{{ completing ? '處理中…' : '✅ 完成出庫' }}</button>
+      <button
+        class="w-full py-3 rounded-2xl font-bold text-sm cursor-pointer bg-transparent flex items-center justify-center gap-2"
+        style="border:2px solid #6366f1;color:#4f46e5;"
+        @click="exportTR"
+      >⬇ 匯出 Excel</button>
+    </div>
+
+    <!-- 底部操作 — 已完成/已截單：只有匯出 -->
+    <div v-else-if="isCompleted || activeTransfer?.state === 'cut'" class="flex-shrink-0 bg-white border-t border-gray-200 px-4 sm:px-5 py-4 safe-pb">
+      <button
+        class="w-full py-3 rounded-2xl font-bold text-sm cursor-pointer bg-transparent flex items-center justify-center gap-2"
+        style="border:2px solid #6366f1;color:#4f46e5;"
+        @click="exportTR"
+      >⬇ 匯出 Excel</button>
     </div>
   </div>
 
@@ -915,12 +1460,18 @@ onBeforeUnmount(() => {
         v-for="(item, idx) in curGroup?.items || []"
         :key="`${item.sku}_${idx}`"
         class="rounded-2xl p-5 border-2 shadow-sm transition-colors"
-        :class="(parseInt(item.pickQty)||0) > (parseInt(item.reqQty)||0)
-          ? 'bg-red-50 border-red-200'
-          : (parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0
-            ? 'bg-emerald-50 border-emerald-200'
-            : 'bg-white border-slate-100'"
+        :class="[
+          isItemLocked(item) ? 'opacity-60 bg-slate-50 border-slate-200'
+            : (parseInt(item.pickQty)||0) > (parseInt(item.reqQty)||0) ? 'bg-red-50 border-red-200'
+            : (parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0 ? 'bg-emerald-50 border-emerald-200'
+            : 'bg-white border-slate-100'
+        ]"
       >
+        <!-- 未點貨鎖定提示 -->
+        <div v-if="isLocalDraft && !item.item_counted" class="mb-3 flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+          🔒 此品項尚未點貨
+        </div>
+
         <div class="mb-4">
           <div class="flex items-center gap-2 mb-1 flex-wrap">
             <span class="font-bold text-sm text-slate-800">{{ item.sku }}</span>
@@ -929,10 +1480,10 @@ onBeforeUnmount(() => {
               class="text-[11px] px-2 py-0.5 rounded-xl font-bold border"
               style="background:linear-gradient(90deg,#fed7aa,#fce7f3);color:#c2410c;border-color:#fdba74;"
             >Repack ×{{ item.multiplier }}</span>
-            <span v-if="(parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0 && (parseInt(item.pickQty)||0) <= (parseInt(item.reqQty)||0)">
+            <span v-if="!isItemLocked(item) && (parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0 && (parseInt(item.pickQty)||0) <= (parseInt(item.reqQty)||0)">
               <div class="inline-flex w-5 h-5 rounded-full bg-emerald-500 items-center justify-center text-white text-[10px]">✓</div>
             </span>
-            <span v-if="(parseInt(item.pickQty)||0) > (parseInt(item.reqQty)||0)" class="text-red-600 text-[11px] font-black bg-red-100 px-2 py-0.5 rounded-xl">超揀!</span>
+            <span v-if="!isItemLocked(item) && (parseInt(item.pickQty)||0) > (parseInt(item.reqQty)||0)" class="text-red-600 text-[11px] font-black bg-red-100 px-2 py-0.5 rounded-xl">超揀!</span>
           </div>
           <div class="text-xs text-slate-400">{{ item.name }}</div>
           <div
@@ -942,7 +1493,8 @@ onBeforeUnmount(() => {
           >需揀單件: {{ (parseInt(item.reqQty)||0) * (parseInt(item.multiplier)||1) }}</div>
         </div>
 
-        <div class="flex gap-3">
+        <!-- 3PL 揀貨模式：需求 + 揀貨 + 箱數 -->
+        <div v-if="isLocalDraft" class="flex gap-3">
           <div class="flex-1">
             <label class="block text-[10px] text-slate-400 font-bold mb-1.5 tracking-widest">需求</label>
             <div class="h-12 flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200 text-lg font-black text-slate-800">{{ item.reqQty }}</div>
@@ -955,13 +1507,13 @@ onBeforeUnmount(() => {
               inputmode="numeric"
               placeholder="0"
               class="w-full h-12 text-center text-lg font-black rounded-xl outline-none border-2"
-              :class="(parseInt(item.pickQty)||0) > (parseInt(item.reqQty)||0)
-                ? 'border-red-300 bg-red-50 text-red-600'
-                : (parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-600'
-                  : 'border-slate-200 bg-white text-slate-800'"
-              :disabled="activeTransfer?.state === 'cut' || activeTransfer?.state === 'done'"
-              @input="updItem(item, 'pickQty', $event.target.value)"
+              :class="isItemLocked(item) ? 'border-slate-200 bg-slate-100 text-slate-400'
+                : (parseInt(item.pickQty)||0) > (parseInt(item.reqQty)||0) ? 'border-red-300 bg-red-50 text-red-600'
+                : (parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0 ? 'border-emerald-300 bg-emerald-50 text-emerald-600'
+                : 'border-slate-200 bg-white text-slate-800'"
+              :disabled="isItemLocked(item)"
+              @input="updItem(item, 'pickQty', $event.target.value); scheduleAutoPrint(item)"
+              @blur="onPickQtyBlur(item)"
             />
           </div>
           <div class="flex-1">
@@ -972,19 +1524,34 @@ onBeforeUnmount(() => {
               inputmode="numeric"
               placeholder="0"
               class="w-full h-12 text-center text-lg font-black rounded-xl outline-none border-2 border-slate-200 bg-white text-slate-800"
-              :disabled="activeTransfer?.state === 'cut' || activeTransfer?.state === 'done'"
+              :disabled="isItemLocked(item)"
               @input="updItem(item, 'boxes', $event.target.value)"
             />
+          </div>
+        </div>
+        <!-- Reprint labels button — shown once pickQty > 0 -->
+        <div v-if="isLocalDraft && !isItemLocked(item) && (parseInt(item.pickQty)||0) > 0" class="flex justify-end mt-2">
+          <button
+            class="px-3 py-1.5 text-[11px] font-bold rounded-lg border cursor-pointer"
+            style="background:#f0fdf4;color:#059669;border-color:#bbf7d0;"
+            @click="reprintItemLabels(item)"
+            title="重新列印標籤"
+          >🖨️ 重印標籤</button>
+        </div>
+        <!-- 非 3PL：只讀顯示數量 -->
+        <div v-if="!isLocalDraft" class="flex gap-3">
+          <div class="flex-1">
+            <label class="block text-[10px] text-slate-400 font-bold mb-1.5 tracking-widest">數量</label>
+            <div class="h-12 flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200 text-lg font-black text-slate-800">{{ item.reqQty }}</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 底部操作 — saveItem 实际不写后端，回 trdetail 让用户多个 group 录完一起 save -->
+    <!-- 底部操作 -->
     <div class="flex-shrink-0 flex border-t border-gray-200 bg-white safe-pb">
-      <button class="flex-1 py-4 bg-slate-50 border-0 text-slate-500 font-bold text-[15px] cursor-pointer" @click="goBack">取消</button>
-      <button class="flex-1 py-4 text-white border-0 font-bold text-[15px] cursor-pointer" style="background:linear-gradient(90deg,#4f46e5,#7c3aed);" @click="saveItem">
-        確認返回（待儲存）
+      <button class="flex-1 py-4 text-white border-0 font-bold text-[15px] cursor-pointer" style="background:linear-gradient(90deg,#4f46e5,#7c3aed);" @click="goBack">
+        {{ isLocalDraft && !isLocked ? '確認返回（待儲存）' : '← 返回' }}
       </button>
     </div>
   </div>
@@ -1085,6 +1652,64 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
+  <!-- 完成確認 Modal -->
+  <div v-if="showCompleteModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="showCompleteModal = false">
+    <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="showCompleteModal = false"></div>
+    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#059669,#10b981);">✅</div>
+          <div>
+            <h2 class="text-lg font-black text-slate-800">確認完成</h2>
+            <p class="text-xs text-slate-400">{{ activeTransfer?.name }} · {{ activeTransfer?.dest_warehouse }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="px-5 py-5">
+        <p class="text-sm text-slate-700 mb-4">
+          <template v-if="isLocalDraft">確認一鍵截單並完成出庫？系統將自動截單、建立 picking 並立即完成。</template>
+          <template v-else>確認完成此 Transfer？系統將驗證出庫單據（stock.picking）。</template>
+        </p>
+        <div class="rounded-xl bg-slate-50 border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+          <div
+            v-for="g in curGroups"
+            :key="g.id"
+            class="px-4 py-2.5 flex items-center justify-between"
+          >
+            <div class="min-w-0">
+              <div class="text-sm font-bold text-slate-700 truncate">{{ g.displayName }}</div>
+              <div class="text-[11px] text-slate-400">{{ g.displaySku }}</div>
+            </div>
+            <div class="text-sm font-black text-slate-700 shrink-0 ml-3">
+              {{ (g.items || []).reduce((a,i) => a + (parseInt(i.pickQty) || parseInt(i.reqQty) || 0), 0) }}
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 rounded-xl px-4 py-3 flex gap-2" style="background:#eff6ff;border:1px solid #bfdbfe;">
+          <span class="shrink-0 mt-0.5" style="color:#2563eb;">ℹ</span>
+          <div class="text-xs font-semibold leading-relaxed" style="color:#1d4ed8;">
+            <template v-if="isLocalDraft">此操作直接截單並完成出庫（一步到位），不會產生「第二轉」。需先完成收貨入庫。</template>
+            <template v-else>需先完成收貨入庫才能完成 Transfer。完成後將無法修改。</template>
+          </div>
+        </div>
+      </div>
+      <div class="flex-shrink-0 px-5 py-4 border-t border-gray-100 flex gap-3">
+        <button
+          class="flex-1 py-3.5 bg-transparent rounded-2xl font-bold text-[15px] cursor-pointer"
+          style="border:2px solid #e2e8f0;color:#64748b;"
+          :disabled="completing"
+          @click="showCompleteModal = false"
+        >取消</button>
+        <button
+          class="flex-1 py-3.5 text-white border-0 rounded-2xl font-bold text-[15px] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+          style="background:linear-gradient(90deg,#059669,#10b981);box-shadow:0 8px 24px rgba(5,150,105,.2);"
+          :disabled="completing"
+          @click="doComplete"
+        >{{ completing ? '處理中…' : '✅ 確認完成' }}</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 冲突 modal -->
   <div v-if="conflictModal.open" class="fixed inset-0 z-[210] flex items-center justify-center bg-black/50 p-4">
     <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
@@ -1120,6 +1745,135 @@ onBeforeUnmount(() => {
     <div class="flex-1 flex flex-col items-center justify-center text-white text-sm text-center px-6">
       相機功能在 PWA 阶段开启<br/>
       <a class="text-blue-300 cursor-pointer underline mt-2" @click="closeScanner">改為手動輸入</a>
+    </div>
+  </div>
+
+  <!-- 收貨確認 Modal -->
+  <div v-if="showReceiveModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="showReceiveModal = false">
+    <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="showReceiveModal = false"></div>
+    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#059669,#10b981);">📦</div>
+          <div>
+            <h2 class="text-lg font-black text-slate-800">確認收貨</h2>
+            <p class="text-xs text-slate-400">PO: {{ curPO }}</p>
+          </div>
+        </div>
+      </div>
+      <div class="px-5 py-5">
+        <p class="text-sm text-slate-700 mb-3">將基於點貨數據驗收入庫（WH/IN → WH/Stock）：</p>
+        <ul class="text-xs text-slate-500 space-y-1.5 list-none p-0">
+          <li>• <strong>齊數</strong>：直接收全部</li>
+          <li>• <strong>多收</strong>：只收 PO 數量，多出的自動加新 PO line（cost=0）</li>
+          <li>• <strong>少收</strong>：只收實際數量，差額自動產生 Backorder</li>
+          <li>• <strong>未點貨</strong>：不收，留待 Backorder</li>
+        </ul>
+      </div>
+      <div class="px-5 py-4 border-t border-gray-100 flex gap-3">
+        <button
+          class="flex-1 py-3 bg-transparent rounded-2xl font-bold text-sm cursor-pointer"
+          style="border:2px solid #e2e8f0;color:#64748b;"
+          @click="showReceiveModal = false"
+        >取消</button>
+        <button
+          class="flex-1 py-3 text-white border-0 rounded-2xl font-bold text-sm cursor-pointer disabled:opacity-50"
+          style="background:linear-gradient(90deg,#059669,#10b981);box-shadow:0 8px 24px rgba(5,150,105,.2);"
+          :disabled="receiving"
+          @click="doReceive"
+        >{{ receiving ? '處理中…' : '📦 確認收貨' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 收貨結果 Modal -->
+  <div v-if="receiveResult" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="receiveResult = null">
+    <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="receiveResult = null"></div>
+    <div class="relative w-full max-w-lg mx-4 bg-white rounded-3xl shadow-2xl max-h-[90vh] overflow-hidden">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#059669,#10b981);">✅</div>
+            <div>
+              <h2 class="text-lg font-black text-slate-800">收貨完成</h2>
+              <p class="text-xs text-slate-400">{{ receiveResult.picking_name }}</p>
+            </div>
+          </div>
+          <button class="p-2 bg-transparent border-0 text-slate-400 text-xl cursor-pointer" @click="receiveResult = null">✕</button>
+        </div>
+      </div>
+      <div class="px-5 py-4 overflow-y-auto" style="max-height:60vh;">
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="bg-emerald-50 rounded-xl p-3 text-center">
+            <div class="text-2xl font-black text-emerald-700">{{ receiveResult.summary?.total_received || 0 }}</div>
+            <div class="text-xs text-emerald-600 mt-0.5">已收數量</div>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 text-center">
+            <div class="text-2xl font-black text-slate-700">{{ receiveResult.summary?.total_expected || 0 }}</div>
+            <div class="text-xs text-slate-500 mt-0.5">預期數量</div>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 mb-4">
+          <span v-if="receiveResult.summary?.matched" class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">✓ 齊數 {{ receiveResult.summary.matched }}</span>
+          <span v-if="receiveResult.summary?.over" class="px-3 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-700">⊕ 多收 {{ receiveResult.summary.over }}</span>
+          <span v-if="receiveResult.summary?.under" class="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">⊖ 少收 {{ receiveResult.summary.under }}</span>
+          <span v-if="receiveResult.summary?.not_counted" class="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">○ 未點 {{ receiveResult.summary.not_counted }}</span>
+        </div>
+        <div v-if="receiveResult.backorder_name" class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-2">
+          <span class="text-amber-600">📋</span>
+          <div>
+            <div class="text-sm font-bold text-amber-800">已產生 Backorder</div>
+            <div class="text-xs text-amber-600">{{ receiveResult.backorder_name }} — 差額待後續收貨</div>
+          </div>
+        </div>
+        <div v-if="receiveResult.extra_lines?.length" class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-4">
+          <div class="text-sm font-bold text-blue-800 mb-2">📝 多收品項（已加新 PO Line, cost=0）</div>
+          <div v-for="el in receiveResult.extra_lines" :key="el.po_line_id" class="text-xs text-blue-700 py-0.5">
+            {{ el.sku }} — {{ el.name }} × {{ el.extra_qty }}
+          </div>
+        </div>
+        <div class="divide-y divide-gray-100">
+          <div
+            v-for="line in receiveResult.lines"
+            :key="line.po_line_id"
+            class="py-2.5 flex items-center gap-3"
+          >
+            <span
+              class="shrink-0 w-2 h-2 rounded-full"
+              :class="{
+                'bg-emerald-400': line.scenario === 'matched',
+                'bg-orange-400': line.scenario === 'over',
+                'bg-red-400': line.scenario === 'under',
+                'bg-slate-300': line.scenario === 'not_counted',
+              }"
+            ></span>
+            <div class="flex-1 min-w-0">
+              <span class="text-sm font-semibold text-slate-700">{{ line.sku }}</span>
+              <span class="text-xs text-slate-400 ml-2">{{ line.name }}</span>
+            </div>
+            <div class="text-right text-xs">
+              <div class="font-bold" :class="{
+                'text-emerald-600': line.scenario === 'matched',
+                'text-orange-600': line.scenario === 'over',
+                'text-red-600': line.scenario === 'under',
+                'text-slate-400': line.scenario === 'not_counted',
+              }">
+                {{ line.received }} / {{ line.expected }}
+              </div>
+              <div class="text-[11px] text-slate-400">
+                {{ line.scenario === 'matched' ? '✓ 齊數' : line.scenario === 'over' ? '⊕ 多收' : line.scenario === 'under' ? '⊖ 少收' : '未點貨' }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-gray-100">
+        <button
+          class="w-full py-3 text-white border-0 rounded-2xl font-bold text-sm cursor-pointer"
+          style="background:linear-gradient(90deg,#4f46e5,#7c3aed);"
+          @click="receiveResult = null"
+        >確認</button>
+      </div>
     </div>
   </div>
 </template>

@@ -44,9 +44,12 @@ function prefetchViews() {
       import('@/views/dashboard/Profile.vue'),
       import('@/views/dashboard/Admin.vue'),
       // Receiving
+      import('@/views/receiving/Dashboard.vue'),
       import('@/views/receiving/Counting.vue'),
       import('@/views/receiving/Allocation.vue'),
       import('@/views/receiving/Transfer.vue'),
+      import('@/views/receiving/PendingTransfers.vue'),
+      import('@/views/receiving/DraftManagement.vue'),
       // Query
       import('@/views/query/SmartQuery.vue'),
     ])
@@ -58,7 +61,7 @@ onMounted(prefetchViews)
 // 顶部业务系统 tab — shortLabel 给平板紧凑布局用
 const systems = [
   { key: 'dashboard', label: '📤 出貨作業中心', shortLabel: '📤 出貨', home: { name: 'home' } },
-  { key: 'receiving', label: '📦 PO 收貨平台',   shortLabel: '📦 收貨', home: { name: 'receiving-alloc' } },
+  { key: 'receiving', label: '📦 PO 收貨平台',   shortLabel: '📦 收貨', home: { name: 'receiving-dashboard' } },
   { key: 'query',     label: '🔍 智能查詢',       shortLabel: '🔍 查詢', home: { name: 'query-home' } },
 ]
 
@@ -83,10 +86,12 @@ const sidebars = {
     // { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },
   ],
   receiving: [
-    // 业务流：分配（plan）→ 點貨（check）→ Transfer（execute），所以收貨分配排第一位
-    { name: 'receiving-alloc',    label: '收貨分配',       icon: '📋' },
-    { name: 'receiving-counting', label: 'PO 點貨',        icon: '📦' },
-    { name: 'receiving-transfer', label: 'Transfer Order', icon: '🚚' },
+    { name: 'receiving-dashboard', label: 'PO 總覽',        icon: '📊' },
+    { name: 'receiving-alloc',     label: '收貨分配',       icon: '📋' },
+    { name: 'receiving-counting',  label: 'PO 點貨',        icon: '📦' },
+    { name: 'receiving-transfer',  label: 'Transfer Order', icon: '🚚' },
+    { name: 'receiving-pending-tr', label: 'TR 待揀',        icon: '📋' },
+    { name: 'receiving-drafts',    label: '3PL Draft',      icon: '📝' },
   ],
   query: [
     { name: 'query-home', label: '智能查詢中心', icon: '🔍' },
