@@ -35,15 +35,18 @@ const BARCODE_W = 100
 const BARCODE_H = 70
 
 // ============================================================
-// 打印用内嵌中文字体（方案 B）— 自托管子集 Noto Sans CJK（常用简繁，~2.2MB）
-//   目的：Mac/Windows/Linux 任意平台打印都能显示中文，不依赖本机已装字体。
-//   字体文件：public/fonts/NotoLabelCJK.woff2 → 部署后 /warehouse/fonts/...
+// 打印用内嵌中文字体（方案 B）— 自托管「微软雅黑(msyh)」子集（~2.9MB）
+//   旧系统(label.py)用 ReportLab 把 msyh.ttf 嵌进 PDF，所以任何机器都能显示中文；
+//   AI 抄成 Web 客户端打印时只抄了字体「名」没抄字体「文件」→ Mac 上变空白。
+//   这里把同一份 msyh 子集化(常用简繁中文+拉丁+标点，去 hinting)嵌进打印 HTML，
+//   既跟旧标签字形 100% 一致，又能 Mac/Windows/Linux 任意平台打印出中文。
+//   字体文件：public/fonts/LabelYaHei.woff2 → 部署后 /warehouse/fonts/...
 //   打印 iframe 由 document.write 生成、无 base URL，故 @font-face 必须用「绝对 URL」。
 // ============================================================
 const LABEL_FONT_FAMILY = 'LabelCJK'
 const LABEL_FONT_URL =
   (typeof window !== 'undefined' ? window.location.origin : '') +
-  (import.meta.env.BASE_URL || '/') + 'fonts/NotoLabelCJK.woff2'
+  (import.meta.env.BASE_URL || '/') + 'fonts/LabelYaHei.woff2'
 const LABEL_FONT_FACE =
   `@font-face{font-family:'${LABEL_FONT_FAMILY}';font-style:normal;font-weight:400;` +
   `font-display:swap;src:url('${LABEL_FONT_URL}') format('woff2');}`
@@ -262,11 +265,13 @@ function renderFoodLabel(d) {
       <div style="position:absolute; bottom:40mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">Nutrition Information</div>
       ${nutritionRows}
 
-      <!-- 中右 — Ingredients 自适应段落 -->
-      <div style="position:absolute; bottom:11mm; left:26.5mm; width:40mm; max-height:27.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word; word-break:break-word;">${esc(d.ingredients ?? '')}</div>
+      <!-- 中右 — Ingredients 自适应段落（旧 draw_paragraph 顶部锚定 y=38，向下排；
+           故用 top 定位贴顶，与左边 Nutrition 标题齐平，而非 bottom 贴底往上长） -->
+      <div style="position:absolute; top:10mm; left:26.5mm; width:40mm; max-height:27.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word; word-break:break-word;">${esc(d.ingredients ?? '')}</div>
 
-      <!-- 下左 — Madeby_Prefix 段落 (T 列) -->
-      <div style="position:absolute; bottom:0.8mm; left:2mm; width:43mm; max-height:8mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.madeby_prefix ?? '')}</div>
+      <!-- 下左 — Madeby_Prefix 段落 (T 列)（旧 draw_paragraph 顶部锚定 y=4.8 → 顶边≈7.3mm，
+           贴在底部分割线 8.8mm 之下向下排；故用 top 定位，而非 bottom 沉到最底） -->
+      <div style="position:absolute; top:42.5mm; left:2mm; width:43mm; max-height:6mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.madeby_prefix ?? '')}</div>
 
       <!-- 下右 — Best before -->
       ${beforeBlock}
