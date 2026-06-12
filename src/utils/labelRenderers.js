@@ -35,6 +35,39 @@ const BARCODE_W = 100
 const BARCODE_H = 70
 
 // ============================================================
+// 打印用内嵌中文字体（方案 B）— 自托管子集 Noto Sans CJK（常用简繁，~2.2MB）
+//   目的：Mac/Windows/Linux 任意平台打印都能显示中文，不依赖本机已装字体。
+//   字体文件：public/fonts/NotoLabelCJK.woff2 → 部署后 /warehouse/fonts/...
+//   打印 iframe 由 document.write 生成、无 base URL，故 @font-face 必须用「绝对 URL」。
+// ============================================================
+const LABEL_FONT_FAMILY = 'LabelCJK'
+const LABEL_FONT_URL =
+  (typeof window !== 'undefined' ? window.location.origin : '') +
+  (import.meta.env.BASE_URL || '/') + 'fonts/NotoLabelCJK.woff2'
+const LABEL_FONT_FACE =
+  `@font-face{font-family:'${LABEL_FONT_FAMILY}';font-style:normal;font-weight:400;` +
+  `font-display:swap;src:url('${LABEL_FONT_URL}') format('woff2');}`
+// 统一字体栈：内嵌字体优先 → 各平台系统中文字体兜底（生僻字）→ 英文/数字回退
+const LABEL_FONT_STACK =
+  `'${LABEL_FONT_FAMILY}','Microsoft YaHei','PingFang SC','Hiragino Sans GB',` +
+  `'Heiti SC','Noto Sans CJK SC','Noto Sans SC','Microsoft JhengHei','Arial Narrow',sans-serif`
+
+// 打印前等内嵌字体加载完再 print()，否则字体没下载好会打成空白。
+// 3s 兜底：字体加载失败也照打（回退系统字体），不卡住。
+function _printWhenFontReady(doc, run) {
+  let done = false
+  const go = () => { if (!done) { done = true; try { run() } catch (e) { console.error(e) } } }
+  try {
+    if (doc && doc.fonts && doc.fonts.load) {
+      doc.fonts.load(`16px '${LABEL_FONT_FAMILY}'`).then(() => doc.fonts.ready).then(go).catch(go)
+      setTimeout(go, 3000)
+    } else {
+      go()
+    }
+  } catch (e) { go() }
+}
+
+// ============================================================
 // 公共工具
 // ============================================================
 function esc(s) {
@@ -731,8 +764,9 @@ function _printBatch({ width, height, count, renderOne }) {
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
+        ${LABEL_FONT_FACE}
         @page { size: ${width}mm ${height}mm; margin: 0; }
-        html, body { margin: 0; padding: 0; font-family: 'Microsoft YaHei', 'Arial Narrow', sans-serif; }
+        html, body { margin: 0; padding: 0; font-family: ${LABEL_FONT_STACK}; }
         .label-page {
           width: ${width}mm; height: ${height}mm;
           position: relative; overflow: hidden;
@@ -747,24 +781,28 @@ function _printBatch({ width, height, count, renderOne }) {
   doc.close()
 
   const triggerPrint = () => {
-    // 1. 各 renderer 自己的 postRender（如 barcode SVG 注入）
-    for (const fn of postRenders) {
-      try { fn(iframe.contentDocument) } catch (e) { console.error(e) }
-    }
-    // 2. 全局 autofit — 统一处理所有 .label-fit 元素的自动缩字号
-    //    这条只对加了 class 的元素生效；没标的 renderer 完全不受影响
-    try { autofitAll(iframe.contentDocument) } catch (e) { console.error(e) }
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.focus()
-        iframe.contentWindow.print()
-      } catch (e) {
-        console.error('Print failed:', e)
+    // 先等内嵌中文字体加载完，再做 postRender / autofit / 打印
+    // （autofit 要量文字宽度，必须在真实字体下量，否则字号算错）
+    _printWhenFontReady(iframe.contentDocument, () => {
+      // 1. 各 renderer 自己的 postRender（如 barcode SVG 注入）
+      for (const fn of postRenders) {
+        try { fn(iframe.contentDocument) } catch (e) { console.error(e) }
       }
+      // 2. 全局 autofit — 统一处理所有 .label-fit 元素的自动缩字号
+      //    这条只对加了 class 的元素生效；没标的 renderer 完全不受影响
+      try { autofitAll(iframe.contentDocument) } catch (e) { console.error(e) }
       setTimeout(() => {
-        if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-      }, 1000)
-    }, 50)
+        try {
+          iframe.contentWindow.focus()
+          iframe.contentWindow.print()
+        } catch (e) {
+          console.error('Print failed:', e)
+        }
+        setTimeout(() => {
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
+        }, 1000)
+      }, 50)
+    })
   }
 
   if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
@@ -800,18 +838,21 @@ function _printRaw(labelResults, width, height) {
   doc.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
     <style>
       *{box-sizing:border-box;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+      ${LABEL_FONT_FACE}
       @page{size:${width}mm ${height}mm;margin:0;}
-      html,body{margin:0;padding:0;font-family:'Microsoft YaHei','Arial Narrow',sans-serif;}
+      html,body{margin:0;padding:0;font-family:${LABEL_FONT_STACK};}
       .label-page{width:${width}mm;height:${height}mm;position:relative;overflow:hidden;page-break-after:always;}
       .label-page:last-child{page-break-after:auto;}
     </style></head><body>${pages.join('')}</body></html>`)
   doc.close()
   const triggerPrint = () => {
-    for (const fn of postRenders) { try { fn(doc) } catch (e) {} }
-    setTimeout(() => {
-      try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch (e) {}
-      setTimeout(() => { if (iframe.parentNode) iframe.parentNode.removeChild(iframe) }, 1000)
-    }, 80)
+    _printWhenFontReady(doc, () => {
+      for (const fn of postRenders) { try { fn(doc) } catch (e) {} }
+      setTimeout(() => {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print() } catch (e) {}
+        setTimeout(() => { if (iframe.parentNode) iframe.parentNode.removeChild(iframe) }, 1000)
+      }, 80)
+    })
   }
   if (doc.readyState === 'complete') triggerPrint()
   else iframe.onload = triggerPrint
@@ -832,7 +873,7 @@ export function generatePickListLabel(item) {
   const expDate = item.expDate ? String(item.expDate) : ''
   const lotRef = item.lotRef ? String(item.lotRef) : ''
   const html = `
-    <div style="width:100mm;height:150mm;position:relative;display:flex;flex-direction:column;align-items:center;padding:6mm 4mm 5mm;box-sizing:border-box;font-family:'Microsoft YaHei','Arial',sans-serif;">
+    <div style="width:100mm;height:150mm;position:relative;display:flex;flex-direction:column;align-items:center;padding:6mm 4mm 5mm;box-sizing:border-box;font-family:${LABEL_FONT_STACK};">
       <div style="font-size:22pt;font-weight:bold;text-align:center;margin-bottom:4mm;word-break:break-all;line-height:1.1;">${esc(item.sku || '')}</div>
       <div style="font-size:14pt;text-align:center;margin-bottom:2mm;line-height:1.25;">${esc(item.name || '')}</div>
       ${expDate ? `<div style="font-size:14pt;text-align:center;margin-bottom:2mm;">Exp Date: ${esc(expDate)}</div>` : ''}
@@ -861,7 +902,7 @@ export function generateRepackLabel(item) {
   const svgId = `bc-rp-${Math.random().toString(36).slice(2, 8)}`
   const barcode = String(item.barcode || '')
   const html = `
-    <div style="width:70mm;height:50mm;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:1mm 2mm 1.5mm;box-sizing:border-box;font-family:'Microsoft YaHei','Arial',sans-serif;">
+    <div style="width:70mm;height:50mm;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:1mm 2mm 1.5mm;box-sizing:border-box;font-family:${LABEL_FONT_STACK};">
       <div style="flex:1;display:flex;align-items:center;justify-content:center;width:100%;">
         ${barcode ? `<svg id="${svgId}" style="width:95%;"></svg>` : ''}
       </div>
