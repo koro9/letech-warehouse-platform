@@ -386,11 +386,18 @@ async function printPickListForTR(tr) {
 //   - 條碼結尾係字母 (e.g. 64966a) → repack 標籤
 //   - 同時查 Label Master → 有食品/保健 label 一齊印
 //   - 兩種情況可疊加（repack 包裝盒要貼自己嘅條碼，仲要貼營養成份）
+//
+//   防重複：`scheduleAutoPrint` (debounce) 同 `@blur` 都會 call 呢個函數，
+//   所以用 _lastPrintedQty 記住每件 item 上次印嘅 qty，相同就 skip。
+const _lastPrintedQty = new Map()
 async function onPickQtyBlur(item) {
   const qty = parseInt(item.pickQty) || 0
   if (qty <= 0) return
   const barcode = item.barcode || ''
   if (!barcode) return
+  const printKey = `${item.po_line_id || ''}|${item.sku || ''}|${barcode}`
+  if (_lastPrintedQty.get(printKey) === qty) return  // 已印過呢個 qty，唔再印
+  _lastPrintedQty.set(printKey, qty)
 
   const isRepack = /[A-Za-z]$/.test(barcode)
 
@@ -1877,3 +1884,4 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
