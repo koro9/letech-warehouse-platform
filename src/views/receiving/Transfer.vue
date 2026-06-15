@@ -70,6 +70,12 @@ const bcInputEl = ref(null)
 // Modal
 const showCutModal = ref(false)
 const scannerOpen = ref(false)
+// 掃碼配對到多個 SKU（base + repack/BOM）時嘅選擇 modal
+const skuChoiceModal = reactive({
+  open: false,
+  scannedBarcode: '',
+  matches: [],   // [{ gi, ii, item, matchType: 'exact'|'bom' }]
+})
 const conflictModal = reactive({
   open: false,
   modified_by: '',
@@ -386,11 +392,18 @@ async function printPickListForTR(tr) {
 //   - 條碼結尾係字母 (e.g. 64966a) → repack 標籤
 //   - 同時查 Label Master → 有食品/保健 label 一齊印
 //   - 兩種情況可疊加（repack 包裝盒要貼自己嘅條碼，仲要貼營養成份）
+//
+//   防重複：`scheduleAutoPrint` (debounce) 同 `@blur` 都會 call 呢個函數，
+//   所以用 _lastPrintedQty 記住每件 item 上次印嘅 qty，相同就 skip。
+const _lastPrintedQty = new Map()
 async function onPickQtyBlur(item) {
   const qty = parseInt(item.pickQty) || 0
   if (qty <= 0) return
   const barcode = item.barcode || ''
   if (!barcode) return
+  const printKey = `${item.po_line_id || ''}|${item.sku || ''}|${barcode}`
+  if (_lastPrintedQty.get(printKey) === qty) return  // 已印過呢個 qty，唔再印
+  _lastPrintedQty.set(printKey, qty)
 
   const isRepack = /[A-Za-z]$/.test(barcode)
 
@@ -597,21 +610,90 @@ const { refreshNow } = usePageRefresh(refreshData)
 // ============================================================
 // 扫码定位品项
 // ============================================================
+// 掃碼搜尋：支援 BOM 關聯
+//   配對方式：
+//   (a) exact   — item.barcode === q  OR  item.sku === q
+//   (b) bom     — item.barcode === q + 單個英文字母 (e.g. q=123456, item=123456a)
+//                 即係掃 base barcode 都可以揾到 repack/BOM 子件
+//
+//   結果：
+//   - 0 match → 錯誤提示
+//   - 1 match → _proceedWithMatch（補貨自動填 qty+autoprint，PO 跳 item view）
+//   - 多 match → 彈 SKU choice modal 等員工揀
 function scanBC() {
   const q = bcQuery.value.trim()
   if (!q) { showToast('請輸入 Barcode 或 SKU', 'warning'); return }
-  const idx = curGroups.value.findIndex(g =>
-    (g.items || []).some(i => i.barcode === q || i.sku === q)
-  )
-  if (idx !== -1) {
-    bcError.value = ''
-    bcQuery.value = ''
-    showToast(`✓ 找到: ${curGroups.value[idx].displayName}`, 'success')
-    setTimeout(() => { selGrp.value = idx; view.value = 'item' }, 400)
-  } else {
+
+  const matches = []
+  curGroups.value.forEach((g, gi) => {
+    (g.items || []).forEach((item, ii) => {
+      const bc = item.barcode || ''
+      if (bc === q || item.sku === q) {
+        matches.push({ gi, ii, item, matchType: 'exact' })
+      } else if (bc && bc.length === q.length + 1 && bc.startsWith(q) && /[A-Za-z]$/.test(bc)) {
+        matches.push({ gi, ii, item, matchType: 'bom' })
+      }
+    })
+  })
+
+  bcQuery.value = ''
+
+  if (!matches.length) {
     bcError.value = `Barcode「${q}」不存在於此單據`
-    bcQuery.value = ''
+    return
   }
+  bcError.value = ''
+
+  if (matches.length === 1) {
+    _proceedWithMatch(matches[0])
+    return
+  }
+
+  // 多 match → 彈 modal
+  skuChoiceModal.scannedBarcode = q
+  skuChoiceModal.matches = matches
+  skuChoiceModal.open = true
+}
+
+// 處理一個 scan 配對結果
+//   補貨 TR (is_replenishment): 自動將 pickQty 填滿 reqQty + 觸發 autoprint
+//   PO TR: 跳去 item view 讓員工人手錄入數量（保留原流程）
+function _proceedWithMatch({ gi, ii, item }) {
+  const g = curGroups.value[gi]
+  if (activeTransfer.value?.is_replenishment) {
+    // 補貨：自動填數 + 列印
+    const req = parseInt(item.reqQty) || 0
+    if (req > 0) {
+      item.pickQty = req
+      dirty.value = true
+    }
+    onPickQtyBlur(item)   // 觸發 Bartender / fallback 印 label
+    showToast(`✓ ${item.sku} 已填入 ${req} 件並送印標籤`, 'success')
+  } else {
+    showToast(`✓ 找到: ${g?.displayName || item.sku}`, 'success')
+    setTimeout(() => { selGrp.value = gi; view.value = 'item' }, 400)
+  }
+}
+
+// SKU choice modal: 員工揀邊個 SKU
+function pickSkuChoice(m) {
+  skuChoiceModal.open = false
+  _proceedWithMatch(m)
+}
+function cancelSkuChoice() {
+  skuChoiceModal.open = false
+  skuChoiceModal.matches = []
+  skuChoiceModal.scannedBarcode = ''
+}
+
+// 顯示：item 係「原裝」定「重包」
+function _itemKind(item) {
+  const bc = item?.barcode || ''
+  if (item?.is_bom || /[A-Za-z]$/.test(bc)) {
+    const m = parseInt(item?.multiplier) || 1
+    return m > 1 ? `重包 ×${m}` : '重包'
+  }
+  return '原裝'
 }
 
 // ============================================================
@@ -1556,6 +1638,60 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
+  <!-- SKU 選擇 Modal — 掃碼配對到多個 SKU（base + repack）時用 -->
+  <div v-if="skuChoiceModal.open" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="cancelSkuChoice">
+    <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="cancelSkuChoice"></div>
+    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#f97316,#ec4899);">⚠</div>
+          <div>
+            <h2 class="text-lg font-black text-slate-800">請揀邊個 SKU</h2>
+            <p class="text-xs text-slate-400">掃描 barcode「{{ skuChoiceModal.scannedBarcode }}」配對到多個品項</p>
+          </div>
+        </div>
+      </div>
+      <div class="px-5 py-4">
+        <p class="text-xs text-slate-500 mb-3">呢個 barcode 同時對應原裝 + 重包，請揀你要揀邊個：</p>
+        <div class="flex flex-col gap-2.5">
+          <button
+            v-for="(m, mi) in skuChoiceModal.matches"
+            :key="mi"
+            class="text-left rounded-2xl border-2 cursor-pointer transition-all hover:-translate-y-px"
+            :class="(m.item.is_bom || /[A-Za-z]$/.test(m.item.barcode || ''))
+              ? 'border-orange-200 bg-orange-50 hover:border-orange-300'
+              : 'border-indigo-200 bg-indigo-50 hover:border-indigo-300'"
+            @click="pickSkuChoice(m)"
+          >
+            <div class="px-4 py-3">
+              <div class="flex items-center justify-between mb-1.5">
+                <span
+                  class="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                  :class="(m.item.is_bom || /[A-Za-z]$/.test(m.item.barcode || ''))
+                    ? 'bg-orange-200 text-orange-900'
+                    : 'bg-indigo-200 text-indigo-900'"
+                >{{ _itemKind(m.item) }}</span>
+                <span class="text-xs font-mono text-slate-500">{{ m.item.barcode }}</span>
+              </div>
+              <div class="text-sm font-bold text-slate-800 truncate mb-0.5">{{ m.item.name }}</div>
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-mono text-slate-500">{{ m.item.sku }}</span>
+                <span class="text-sm font-black text-slate-700">需 {{ m.item.reqQty }} 件</span>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+      <div class="flex-shrink-0 px-5 py-4 border-t border-gray-100">
+        <button
+          class="w-full py-3 bg-transparent rounded-2xl font-bold text-sm cursor-pointer"
+          style="border:2px solid #e2e8f0;color:#64748b;"
+          @click="cancelSkuChoice"
+        >取消</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 截單 Modal -->
   <div v-if="showCutModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="closeCutModal">
     <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="closeCutModal"></div>
@@ -1877,3 +2013,4 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+

@@ -939,5 +939,9 @@ export function printPickList(items) {
  */
 export function printRepackLabels(item, qty = 1) {
   const n = Math.max(1, Math.min(parseInt(qty) || 1, 500))
-  _printRaw(Array(n).fill(generateRepackLabel(item)), 70, 50)
+  // 每張 label 都要 generateRepackLabel(item) 新 instance — Array.fill() 會
+  // 將同一個 {html,postRender} 放 n 份，所有 SVG 用同一個 id，
+  // JsBarcode 只 render 到第一張，後面全部冇 barcode。
+  _printRaw(Array.from({ length: n }, () => generateRepackLabel(item)), 70, 50)
 }
+
