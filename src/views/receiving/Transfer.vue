@@ -21,13 +21,15 @@
  *   后端拆 TR 成"已揀部分"+"剩餘部分"两张，原 TR 锁定 (state=cut)。
  *   员工要继续揀 → 去 trlist 找新建的"第二轉" TR。
  */
-import { computed, nextTick, reactive, ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
+import { computed, nextTick, reactive, ref, onMounted, onActivated, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { po as poApi, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { printLabels, printPickList, printRepackLabels } from '@/utils/labelRenderers'
 import { printToBartender } from '@/utils/bartenderPrint'
+// 按需異步加載:zxing 解碼庫(~113KB gzip)只在真正打開相機時才下載
+const BarcodeScanner = defineAsyncComponent(() => import('@/components/BarcodeScanner.vue'))
 
 // ============================================================
 // 状态
@@ -919,6 +921,12 @@ async function doComplete() {
 // ============================================================
 function openScanner()  { scannerOpen.value = true }
 function closeScanner() { scannerOpen.value = false }
+// 相機掃到條碼 → 填入查詢框並查詢
+function onScanDetected(code) {
+  bcQuery.value = code
+  closeScanner()
+  scanBC()
+}
 
 // ============================================================
 // 导出 — stub（沿用 demo 行为，等业务确认要不要做）
@@ -1872,17 +1880,7 @@ onBeforeUnmount(() => {
   </div>
 
   <!-- 扫码相机占位 -->
-  <div v-if="scannerOpen" class="fixed inset-0 z-[200] flex flex-col bg-black">
-    <div class="flex items-center px-4 py-3 text-white" style="background:rgba(0,0,0,.9);">
-      <button class="p-2 bg-transparent border-0 text-white text-xl cursor-pointer" @click="closeScanner">✕</button>
-      <div class="flex-1 text-center font-bold">掃描條碼</div>
-      <div class="w-10"></div>
-    </div>
-    <div class="flex-1 flex flex-col items-center justify-center text-white text-sm text-center px-6">
-      相機功能在 PWA 阶段开启<br/>
-      <a class="text-blue-300 cursor-pointer underline mt-2" @click="closeScanner">改為手動輸入</a>
-    </div>
-  </div>
+  <BarcodeScanner v-if="scannerOpen" @detected="onScanDetected" @close="closeScanner" />
 
   <!-- 收貨確認 Modal -->
   <div v-if="showReceiveModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="showReceiveModal = false">

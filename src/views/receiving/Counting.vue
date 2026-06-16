@@ -21,13 +21,15 @@
  * 该 alloc 显示哪几个仓的录入框（main alloc 通常含 3PL/WS/SD4/额外列；
  * combo alloc 只含 3PL）。不再写死全局 WH 常量。
  */
-import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount, onActivated } from 'vue'
+import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount, onActivated, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onBeforeRouteLeave } from 'vue-router'
 import { po as poApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import RefreshButton from '@/components/RefreshButton.vue'
+// 按需異步加載:zxing 解碼庫(~113KB gzip)只在真正打開相機時才下載
+const BarcodeScanner = defineAsyncComponent(() => import('@/components/BarcodeScanner.vue'))
 
 // 仓库色板 — 已知仓位用预定义色，新仓位（额外列名）fallback 灰色
 const WH_COLOR = { '3PL': '#4A90D9', 'WS': '#E6A23C', 'SD4': '#67C23A' }
@@ -301,6 +303,12 @@ function scanBC() {
 
 function openScanner()  { scannerOpen.value = true }
 function closeScanner() { scannerOpen.value = false }
+// 相機掃到條碼 → 填入查詢框並查詢
+function onScanDetected(code) {
+  bcInput.value = code
+  closeScanner()
+  scanBC()
+}
 
 // ============================================================
 // Dirty tracking
@@ -1012,20 +1020,7 @@ onActivated(_autoLoadFromQuery)
     </div>
 
     <!-- 扫码相机弹窗（视觉占位） -->
-    <div v-if="scannerOpen" class="fixed inset-0 z-[200] flex flex-col items-center justify-center" style="background:rgba(0,0,0,.92);">
-      <div class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center">
-        <span class="text-white text-[15px] font-bold">📷 掃描條碼</span>
-        <button
-          class="border-0 text-white w-9 h-9 rounded-full text-xl cursor-pointer flex items-center justify-center"
-          style="background:rgba(255,255,255,.15);"
-          @click="closeScanner"
-        >✕</button>
-      </div>
-      <div class="text-white/70 text-sm mt-5 text-center">
-        相機功能在 PWA 阶段开启<br/>
-        <a class="text-blue-300 cursor-pointer underline" @click="closeScanner">手動輸入條碼</a>
-      </div>
-    </div>
+    <BarcodeScanner v-if="scannerOpen" @detected="onScanDetected" @close="closeScanner" />
   </div>
 
   <!-- ===== 冲突 Modal — 跨整页 ===== -->
