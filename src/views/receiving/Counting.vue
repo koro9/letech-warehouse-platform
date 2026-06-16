@@ -1029,6 +1029,19 @@ onActivated(_autoLoadFromQuery)
       </template>
     </div>
 
+    <!-- 產品主圖（基本信息 le_main_photo，公網 URL）；手機端自適應：撑满列宽、限高、保持比例 -->
+    <div v-if="curItem.main_photo" class="card" style="padding:12px;">
+      <div class="text-[11px] text-gray-400 mb-2">🖼️ 產品主圖</div>
+      <img
+        :src="curItem.main_photo"
+        :alt="curItem.name"
+        class="w-full rounded-lg object-contain bg-gray-50"
+        style="max-height:300px;"
+        loading="lazy"
+        @error="$event.target.closest('.card').style.display='none'"
+      />
+    </div>
+
     <div class="h-18"></div>
 
     <!-- 保存 sticky — 全 PO save（saveAll）；詳情頁存成功後返回 SKU 列表 -->
