@@ -21,7 +21,7 @@
  *   后端拆 TR 成"已揀部分"+"剩餘部分"两张，原 TR 锁定 (state=cut)。
  *   员工要继续揀 → 去 trlist 找新建的"第二轉" TR。
  */
-import { computed, nextTick, reactive, ref, onMounted, onActivated, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { computed, nextTick, reactive, ref, watch, onMounted, onActivated, onBeforeUnmount, onDeactivated, defineAsyncComponent } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { po as poApi, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
@@ -610,6 +610,28 @@ async function refreshData() {
 const { refreshNow } = usePageRefresh(refreshData)
 
 // ============================================================
+// 自動刷新開關（WMS 同款滑動開關，TR 列表每 10s 拉最新進度）
+// 安全：只在 TR 列表頁(view==='trlist')、無未存改動時刷新；
+//       進了某 TR 詳情/有 dirty 自動跳過。reloadTRList 本身靜默(不闪 loading)。
+// ============================================================
+const autoRefresh = ref(true)
+let _trPollTimer = null
+const TR_POLL_MS = 10000
+
+async function _pollTRList() {
+  if (!autoRefresh.value) return
+  if (view.value !== 'trlist') return   // 只在 TR 列表頁輪詢
+  if (dirty.value) return               // 有未存改動 → 跳過
+  await reloadTRList()
+}
+function startTRPoll() { if (!_trPollTimer) _trPollTimer = setInterval(_pollTRList, TR_POLL_MS) }
+function stopTRPoll()  { if (_trPollTimer) { clearInterval(_trPollTimer); _trPollTimer = null } }
+watch(autoRefresh, (v) => {
+  if (v) { startTRPoll(); _pollTRList() }   // 打開即刻刷一次
+  else stopTRPoll()
+})
+
+// ============================================================
 // 扫码定位品项
 // ============================================================
 // 掃碼搜尋：支援 BOM 關聯
@@ -1013,10 +1035,16 @@ async function _autoLoadFromQuery() {
 onMounted(() => {
   window.addEventListener('beforeunload', _onBeforeUnload)
   _autoLoadFromQuery()
+  if (autoRefresh.value) startTRPoll()
 })
-onActivated(_autoLoadFromQuery)
+onActivated(() => {
+  _autoLoadFromQuery()
+  if (autoRefresh.value) startTRPoll()
+})
+onDeactivated(stopTRPoll)
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', _onBeforeUnload)
+  stopTRPoll()
 })
 </script>
 
@@ -1073,11 +1101,18 @@ onBeforeUnmount(() => {
           <h1 class="text-lg font-black">PO: {{ curPO }}</h1>
           <p class="text-xs mt-0.5" style="color:rgba(167,139,250,.5);">{{ trList.length }} 張調撥單</p>
         </div>
-        <button
-          class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer"
-          style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
-          @click="refreshNow"
-        >🔄 刷新</button>
+        <!-- 自動刷新開關（WMS 同款滑動開關 + 脉冲點，每 10s）-->
+        <div class="g-toggle-wrap" style="gap:6px;">
+          <span class="flex items-center gap-1 text-[11px] text-white/80 select-none whitespace-nowrap">
+            <span class="w-2 h-2 rounded-full"
+                  :class="autoRefresh ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'"></span>
+            {{ autoRefresh ? '每 10s' : '已暫停' }}
+          </span>
+          <button class="g-toggle" :class="{ on: autoRefresh }"
+                  :aria-label="autoRefresh ? '關閉自動刷新' : '開啟自動刷新'"
+                  :title="autoRefresh ? '自動刷新已開啟（每 10 秒）；點擊暫停' : '自動刷新已暫停；點擊開啟'"
+                  @click="autoRefresh = !autoRefresh"></button>
+        </div>
         <button
           v-if="trList.length > 0"
           class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer"
