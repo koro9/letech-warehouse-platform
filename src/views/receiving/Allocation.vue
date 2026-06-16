@@ -500,8 +500,9 @@ async function saveData() {
       const n = (res.saved || []).length
       showToast(`✅ 已儲存 ${n} 行`, 'success')
     } else {
-      // 不应该走到这（207 在拦截器抛错走 catch）
-      showToast('儲存回應異常', 'warning')
+      // 207 冲突会走到这（axios 默认把 207 当 success → resolve，不抛错）：
+      // 别人改过同一行导致乐观锁冲突。提示用户刷新。
+      showToast('儲存回應異常,可能其他用戶已修改。請刷新畫面', 'error')
     }
   } catch (err) {
     if (err.handledByInterceptor) {
