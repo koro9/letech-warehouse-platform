@@ -321,11 +321,21 @@ function openSKU(sku) {
 function scanBC() {
   const v = bcInput.value.trim()
   if (!v || !curPO.value) return
-  const f = curPO.value.items.find(it => it.barcode === v)
-  if (f) {
+  const items = curPO.value.items || []
+  // 1) 精確:barcode 或 sku 完全相等(扫码枪扫整条 / 输入完整 SKU)
+  let hits = items.filter(it => it.barcode === v || it.sku === v)
+  // 2) 退回「關鍵字部分匹配」:输入 78900 命中 12345678900;≥3 字才模糊,避免命中一堆
+  if (!hits.length && v.length >= 3) {
+    hits = items.filter(it =>
+      (it.barcode || '').includes(v) || (it.sku || '').includes(v))
+  }
+  if (hits.length === 1) {
+    const f = hits[0]
     bcInput.value = ''
     showToast(`✅ ${f.name}`, 'success')
     setTimeout(() => { curSKU.value = f.sku }, 350)
+  } else if (hits.length > 1) {
+    showToast(`找到 ${hits.length} 個匹配,請輸入更完整的條碼`, 'warning')
   } else {
     showToast('❌ 找不到', 'error')
   }

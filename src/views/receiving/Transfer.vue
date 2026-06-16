@@ -660,6 +660,18 @@ function scanBC() {
     })
   })
 
+  // 沒有精確/BOM 命中 → 退回「關鍵字部分匹配」(輸入 78900 命中 12345678900)
+  // 至少 3 個字才模糊,避免短輸入命中一堆;多個命中走下面的選擇 modal
+  if (!matches.length && q.length >= 3) {
+    curGroups.value.forEach((g, gi) => {
+      (g.items || []).forEach((item, ii) => {
+        if ((item.barcode || '').includes(q) || (item.sku || '').includes(q)) {
+          matches.push({ gi, ii, item, matchType: 'partial' })
+        }
+      })
+    })
+  }
+
   bcQuery.value = ''
 
   if (!matches.length) {
