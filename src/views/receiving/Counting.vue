@@ -21,7 +21,7 @@
  * 该 alloc 显示哪几个仓的录入框（main alloc 通常含 3PL/WS/SD4/额外列；
  * combo alloc 只含 3PL）。不再写死全局 WH 常量。
  */
-import { computed, nextTick, reactive, ref, onMounted, onBeforeUnmount, onActivated, defineAsyncComponent } from 'vue'
+import { computed, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { onBeforeRouteLeave } from 'vue-router'
 import { po as poApi } from '@/api'
@@ -176,10 +176,12 @@ const detailStats = computed(() => {
 // ============================================================
 // 加载 PO
 // ============================================================
-async function loadPO() {
+async function loadPO(opts = {}) {
+  // silent: 自动刷新轮询用 — 不闪 loading、不弹失败 toast(避免每 10s 打扰)
+  const silent = opts && opts.silent === true
   const v = poInput.value.trim()
-  if (!v) { showToast('請輸入 PO 單號', 'warning'); return }
-  loading.value = true
+  if (!v) { if (!silent) showToast('請輸入 PO 單號', 'warning'); return }
+  if (!silent) loading.value = true
   try {
     const res = await poApi.getCounting(v)
     // 重置本地状态
@@ -241,6 +243,7 @@ async function loadPO() {
     })
   } catch (err) {
     if (err.handledByInterceptor) return
+    if (silent) return   // 静默轮询失败不打扰用户
     const status = err.response?.status
     const data = err.response?.data || {}
     if (status === 404) {
@@ -253,7 +256,7 @@ async function loadPO() {
       showToast(data.error || '載入失敗', 'error')
     }
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -279,6 +282,33 @@ async function refreshData() {
   showToast('✅ 已刷新', 'success')
 }
 const { refreshNow } = usePageRefresh(refreshData)
+
+// ============================================================
+// 自動刷新開關（WMS 通用滑動開關，SKU 列表頁每 10s 拉最新進度）
+// 安全：只在「SKU 列表頁 + 無未存改動」時靜默刷新，不闪 loading、不冲掉輸入；
+//       在詳情頁或有 dirty 時自動跳過該輪。
+// ============================================================
+const autoRefresh = ref(true)
+let _pollTimer = null
+const COUNTING_POLL_MS = 10000
+
+async function _pollCounting() {
+  if (!autoRefresh.value) return
+  if (!curPO.value || curSKU.value) return   // 只在 SKU 列表頁輪詢
+  if (dirtySkus.size > 0) return              // 有未存改動 → 跳過，避免冲掉
+  await loadPO({ silent: true })
+}
+function startCountingPoll() {
+  if (_pollTimer) return
+  _pollTimer = setInterval(_pollCounting, COUNTING_POLL_MS)
+}
+function stopCountingPoll() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null }
+}
+watch(autoRefresh, (v) => {
+  if (v) { startCountingPoll(); _pollCounting() }   // 打開即刻刷一次,不用等 10s
+  else stopCountingPoll()
+})
 
 function openSKU(sku) {
   curSKU.value = sku
@@ -424,6 +454,7 @@ async function saveAll() {
     return
   }
   saving.value = true
+  let ok = false
   try {
     const dirtyRows = [...dirtySkus].map(buildPayloadRow)
     const res = await poApi.saveCounting(curPO.value.po, { rows: dirtyRows })
@@ -438,8 +469,9 @@ async function saveAll() {
         }
       })
       showToast(`✅ 已儲存 ${(res.saved || []).length} 項`, 'success')
+      ok = true
     } else {
-      showToast('儲存回應異常', 'warning')
+      showToast('儲存回應異常,可能其他用戶已修改。請刷新畫面', 'error')
     }
   } catch (err) {
     if (err.handledByInterceptor) {
@@ -479,6 +511,13 @@ async function saveAll() {
   } finally {
     saving.value = false
   }
+  return ok
+}
+
+// 詳情頁保存:存成功(無衝突/無錯誤)後直接返回 SKU 列表
+async function saveAndBack() {
+  const ok = await saveAll()
+  if (ok) backToList()
 }
 
 // ============================================================
@@ -607,10 +646,15 @@ function _onBeforeUnload(e) {
 
 onMounted(() => {
   window.addEventListener('beforeunload', _onBeforeUnload)
+  if (autoRefresh.value) startCountingPoll()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', _onBeforeUnload)
+  stopCountingPoll()
 })
+// KeepAlive 缓存切走时停、切回时按开关恢复
+onActivated(() => { if (autoRefresh.value) startCountingPoll() })
+onDeactivated(stopCountingPoll)
 
 // ============================================================
 // 深链接支持 — Odoo PO form 「WMS 點貨」smart button 跳过来时
@@ -663,7 +707,18 @@ onActivated(_autoLoadFromQuery)
     <div class="hdr">
       <button class="hdr-back" @click="backToPO">‹</button>
       <h1>SKU 清單</h1>
-      <RefreshButton :on-refresh="refreshNow" />
+      <!-- 自動刷新開關（WMS 同款滑動開關 + 脉冲點，每 10s）-->
+      <div class="g-toggle-wrap" style="gap:6px;">
+        <span class="flex items-center gap-1 text-[11px] text-gray-500 select-none whitespace-nowrap">
+          <span class="w-2 h-2 rounded-full transition-colors"
+                :class="autoRefresh ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'"></span>
+          {{ autoRefresh ? '每 10s' : '已暫停' }}
+        </span>
+        <button class="g-toggle" :class="{ on: autoRefresh }"
+                :aria-label="autoRefresh ? '關閉自動刷新' : '開啟自動刷新'"
+                :title="autoRefresh ? '自動刷新已開啟（每 10 秒）；點擊暫停' : '自動刷新已暫停；點擊開啟'"
+                @click="autoRefresh = !autoRefresh"></button>
+      </div>
       <!-- 顶部 saveAll 按钮 — dirty > 0 才高亮 -->
       <button
         v-if="dirtySkus.size > 0"
@@ -976,13 +1031,13 @@ onActivated(_autoLoadFromQuery)
 
     <div class="h-18"></div>
 
-    <!-- 保存 sticky — 改成全 PO save（saveAll）— 跟旧 saveDetail 单 SKU 保存不同 -->
+    <!-- 保存 sticky — 全 PO save（saveAll）；詳情頁存成功後返回 SKU 列表 -->
     <div class="m3a-bot safe-pb">
       <button
         class="g-btn g-btn-teal w-full"
         style="padding:14px;"
         :disabled="saving || dirtySkus.size === 0"
-        @click="saveAll"
+        @click="saveAndBack"
       >
         <template v-if="saving">⏳ 儲存中…</template>
         <template v-else-if="dirtySkus.size === 0">💾 儲存（無變更）</template>
