@@ -101,6 +101,18 @@ export function generateLabel(scope) {
 }
 
 /**
+ * 重試失敗的面單。只有 status='failed' 嘅單先可以重試（後端會校驗）。
+ *
+ * 後端契約：
+ *   POST /api/warehouse/shipping/labels/<id>/retry
+ *   200 → { ok: true, id, status: 'processing' }
+ *   400 not_failed（status 唔係 failed）/ 404 label_not_found
+ */
+export function retryLabel(labelId) {
+  return http.post(`/warehouse/shipping/labels/${labelId}/retry`)
+}
+
+/**
  * 查询当前 today / tomorrow 是否有人在生成。前端 2.5s 轮询。
  *
  * 后端契约：

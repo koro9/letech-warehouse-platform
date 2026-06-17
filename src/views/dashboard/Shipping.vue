@@ -51,6 +51,7 @@ const historyLabels = ref([])
 
 const loading = ref(false)        // 任何一个加载中
 const downloadingId = ref(null)   // 正在下载的 label id（按钮 spinner）
+const retryingId = ref(null)      // 正在重試的 label id（按钮 spinner）
 
 // 历史板块分页 — 跟运单页同款
 const PAGE_SIZE = 40
@@ -179,6 +180,27 @@ async function downloadLabel(label) {
     }
   } finally {
     downloadingId.value = null
+  }
+}
+
+// ============================================================
+// 重試失敗的面單（重置 status → 重新投 async job）
+// 只對 status='failed' 嘅單有效；後端會校驗。重試後 status 翻 processing，
+// reload 讓進度條即時顯示。
+// ============================================================
+async function retryLabel(label) {
+  if (retryingId.value === label.id) return
+  retryingId.value = label.id
+  try {
+    await shipping.retryLabel(label.id)
+    showToast('🔄 已重新提交，處理中…', 'success')
+    await loadAll()   // status 翻 processing，三塊全部 reload 讓 UI 同步
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      showToast(err.response?.data?.error || '重試失敗', 'error')
+    }
+  } finally {
+    retryingId.value = null
   }
 }
 
@@ -439,6 +461,15 @@ function rowClass(r) {
                   >
                     {{ downloadingId === r.id ? '下載中…' : '下載' }}
                   </button>
+                  <button
+                    v-else-if="rowState(r) === 'failed'"
+                    class="g-btn"
+                    style="padding:5px 16px;font-size:12px;background:#dc2626;color:#fff"
+                    :disabled="retryingId === r.id"
+                    @click="retryLabel(r)"
+                  >
+                    {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
+                  </button>
                   <span v-else class="text-gray-300">—</span>
                 </td>
               </tr>
@@ -485,6 +516,15 @@ function rowClass(r) {
                   @click="downloadLabel(r)"
                 >
                   {{ downloadingId === r.id ? '下載中…' : '下載' }}
+                </button>
+                <button
+                  v-else-if="rowState(r) === 'failed'"
+                  class="g-btn flex-shrink-0"
+                  style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff"
+                  :disabled="retryingId === r.id"
+                  @click="retryLabel(r)"
+                >
+                  {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
                 </button>
                 <span v-else class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
               </div>
@@ -605,6 +645,13 @@ function rowClass(r) {
                         @click="downloadLabel(r)">
                   {{ downloadingId === r.id ? '下載中…' : '下載' }}
                 </button>
+                <button v-else-if="rowState(r) === 'failed'"
+                        class="g-btn"
+                        style="padding:5px 16px;font-size:12px;background:#dc2626;color:#fff"
+                        :disabled="retryingId === r.id"
+                        @click="retryLabel(r)">
+                  {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
+                </button>
                 <span v-else class="text-gray-300">—</span>
               </td>
             </tr>
@@ -651,6 +698,13 @@ function rowClass(r) {
                       :disabled="downloadingId === r.id"
                       @click="downloadLabel(r)">
                 {{ downloadingId === r.id ? '下載中…' : '下載' }}
+              </button>
+              <button v-else-if="rowState(r) === 'failed'"
+                      class="g-btn flex-shrink-0"
+                      style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff"
+                      :disabled="retryingId === r.id"
+                      @click="retryLabel(r)">
+                {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
               </button>
               <span v-else class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
             </div>
