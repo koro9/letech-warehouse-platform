@@ -281,6 +281,58 @@ function forceComplete() {
 }
 
 // ============================================================
+// 全部出庫 — 掃貨員偷懶工具按鈕（用戶 spec 2026-06-18）
+//   貨其實都齊,只係懶得逐件掃 → 一鍵把每個商品「出庫數量」補到「訂單數量」,
+//   再走【正常出庫】(force=false,因為補滿後 scanned===required,數量啱晒)。
+//   例:出 24 個,只掃咗 2 個 → 點呢個 → 補上剩下 22 個一齊出。
+//   開咗「是否列印」→ 同剩低嘅數量補打標籤(每項打 delta 份)。
+// ============================================================
+async function shipAll() {
+  if (!pickingId.value || validating.value || !items.value.length) return
+  // 1) 收集每項「剩下要補」嘅差量,並把出庫數量補滿
+  const deltas = []
+  for (const it of items.value) {
+    const delta = it.required - it.scanned
+    if (delta > 0) {
+      deltas.push({ item: it, delta })
+      it.scanned = it.required
+    }
+  }
+  // 2) 開咗列印 → 同剩低數量補打標籤(每項打 delta 份)
+  if (printAfterScan.value) {
+    for (const { item, delta } of deltas) {
+      await printRemainingLabels(item, delta)
+    }
+  }
+  // 3) 正常出庫(已補滿,唔使 force)
+  await doValidate(false)
+}
+
+/** 確保標籤資料就緒後,給 item 補打 count 份（全部出庫專用,兼容從未掃過嘅冷 cache） */
+async function printRemainingLabels(item, count) {
+  const bc = item.barcode
+  if (!bc || count <= 0) return
+  if (!labelCache.has(bc)) preloadLabel(item)   // 從未掃過 → cache 係冷嘅,現在補一發
+  let cached = labelCache.get(bc)
+  if (cached === 'loading') {
+    for (let i = 0; i < 50; i++) {
+      await new Promise(r => setTimeout(r, 50))
+      cached = labelCache.get(bc)
+      if (cached !== 'loading') break
+    }
+  }
+  if (!cached || cached === 'loading') {
+    showToast(`${item.sku} 標籤資料載入超時`, 'warning')
+    return
+  }
+  if (cached.labels && cached.labels.length) {
+    printLabels(cached.labels, count)
+  } else {
+    showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
+  }
+}
+
+// ============================================================
 // 重置 — 纯前端清空（方案 B：后端没记录扫码进度，不用清）
 // ============================================================
 function reset() {
@@ -334,6 +386,14 @@ function reset() {
         </div>
         <RefreshButton v-if="pickingId" :on-refresh="refreshNow" />
         <button class="g-btn g-btn-teal" @click="reset">重置</button>
+        <button
+          class="g-btn g-btn-blue"
+          :disabled="!pickingId || validating"
+          title="把所有商品補到訂單數量並正常出庫（貨已齊、懶得逐件掃時用）"
+          @click="shipAll"
+        >
+          {{ validating ? '處理中…' : '全部出庫' }}
+        </button>
         <button class="g-btn g-btn-pink" :disabled="!pickingId || validating" @click="forceComplete">
           {{ validating ? '處理中…' : '強制出庫' }}
         </button>
