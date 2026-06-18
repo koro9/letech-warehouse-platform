@@ -1750,7 +1750,7 @@ onBeforeUnmount(() => {
   <!-- 截單 Modal -->
   <div v-if="showCutModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="closeCutModal">
     <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="closeCutModal"></div>
-    <div class="relative w-full max-w-lg mx-4 bg-white rounded-3xl shadow-2xl max-h-[90vh] overflow-hidden">
+    <div class="relative w-full max-w-lg mx-4 bg-white rounded-3xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
       <div class="px-5 pt-5 pb-4 border-b border-gray-100">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -1764,7 +1764,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="px-5 py-5 flex flex-col gap-4 overflow-y-auto" style="max-height:60vh;">
+      <div class="px-5 py-5 flex flex-col gap-4 overflow-y-auto flex-1 min-h-0" style="-webkit-overflow-scrolling:touch;">
         <!-- 第一转 -->
         <div class="rounded-2xl border-2 overflow-hidden" style="border-color:#c7d2fe;">
           <div class="text-white px-4 py-3 flex justify-between" style="background:linear-gradient(90deg,#6366f1,#7c3aed);">
