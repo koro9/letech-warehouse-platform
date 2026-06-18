@@ -57,10 +57,20 @@ async function doSearch() {
   }
 }
 
-function searchUrlOf(item) {
-  return item.searchUrl && item.searchUrl !== '#'
-    ? item.searchUrl
-    : `https://www.hktvmall.com/hktv/zh/search_a?keyword=${encodeURIComponent(item.name || '')}`
+// ===== 商品「詳情」图片展开 =====
+// 取代旧的「商城」外链：点「詳情」在该行下方展开主图+其他图，再点收起。
+const openKey = ref(null)             // 当前展开的商品 key；同时只展开一个
+function keyOf(item) {
+  return (item.sku || '') + '|' + (item.barcode || '')
+}
+function imagesOf(item) {
+  return Array.isArray(item.images) ? item.images : []
+}
+function isOpen(item) {
+  return openKey.value === keyOf(item)
+}
+function toggleDetail(item) {
+  openKey.value = isOpen(item) ? null : keyOf(item)
 }
 
 function fillInvAndSearch(sku) {
@@ -188,15 +198,40 @@ function fmtQty(n) {
                 </div>
               </div>
               <div class="flex gap-2.5 shrink-0 w-full sm:w-auto justify-end">
-                <a
-                  :href="searchUrlOf(item)"
-                  target="_blank"
-                  class="bg-white text-slate-600 border border-slate-300 py-2.5 px-4 rounded-xl no-underline text-sm font-bold flex items-center justify-center hover:bg-slate-50"
-                >🔗 商城</a>
+                <button
+                  type="button"
+                  class="bg-white text-slate-600 border border-slate-300 py-2.5 px-4 rounded-xl text-sm font-bold cursor-pointer flex items-center justify-center gap-1.5 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  :disabled="!imagesOf(item).length"
+                  @click="toggleDetail(item)"
+                >{{ isOpen(item) ? '🔼 收起' : (imagesOf(item).length ? '📷 詳情' : '📷 無圖片') }}</button>
                 <button
                   class="bg-emerald-500 text-white border-0 py-2.5 px-4 rounded-xl text-sm font-bold cursor-pointer flex items-center gap-1.5 shadow hover:bg-emerald-600"
                   @click="fillInvAndSearch(item.sku)"
                 >📦 查庫存</button>
+              </div>
+
+              <!-- 「詳情」展开：商品图片（主图 + 其他图），点图可在新分页看大图 -->
+              <div
+                v-if="isOpen(item)"
+                class="w-full mt-1 pt-3 border-t border-slate-200"
+              >
+                <div class="flex flex-wrap gap-2.5">
+                  <a
+                    v-for="(url, i) in imagesOf(item)"
+                    :key="i"
+                    :href="url"
+                    target="_blank"
+                    class="block"
+                  >
+                    <img
+                      :src="url"
+                      alt="商品圖片"
+                      loading="lazy"
+                      class="w-24 h-24 sm:w-28 sm:h-28 object-cover rounded-xl border border-slate-200 bg-white"
+                      onerror="this.style.opacity=0.25;this.alt='圖片載入失敗'"
+                    />
+                  </a>
+                </div>
               </div>
             </div>
           </div>
