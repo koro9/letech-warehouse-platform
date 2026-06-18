@@ -17,6 +17,23 @@ export function listPOs(tab = 'pending') {
 }
 
 /**
+ * 儲存收貨 Dashboard 的「形容 / 實際收貨時間」到服務器（PO 級樂觀鎖）。
+ *
+ * 後端契約：POST /api/warehouse/po/<po_name>/dashboard-note
+ *
+ * @param {string} poName
+ * @param {object} payload  { description, actual_date('YYYY-MM-DD'|''), _last_modified_at }
+ * @returns
+ *   200 { ok, server_time, description, actual_date }
+ *   409 { error:'conflict', modified_by, modified_at, server_description, server_actual_date }
+ *   404 po_not_found / 422 po_state_not_allowed
+ */
+export function saveDashboardNote(poName, payload) {
+  const safe = encodeURIComponent(poName)
+  return http.post(`/warehouse/po/${safe}/dashboard-note`, payload)
+}
+
+/**
  * 列出所有待揀 Transfer Orders（跨 PO）。
  *
  * 後端契約：GET /api/warehouse/transfers/pending

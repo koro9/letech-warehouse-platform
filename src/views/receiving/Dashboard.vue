@@ -10,34 +10,60 @@ import RefreshButton from '@/components/RefreshButton.vue'
 const auth = useAuthStore()
 const router = useRouter()
 
-const LS_KEY = 'wh_po_dashboard_local'
-
 const tab = ref('pending')
 const loading = ref(false)
 const poList = ref([])
 
-// localStorage 暫存：{ [poName]: { description: '', actualDate: '' } }
-const localData = ref(loadLocalData())
-
-function loadLocalData() {
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || '{}')
-  } catch { return {} }
-}
-
-function saveLocalData() {
-  localStorage.setItem(LS_KEY, JSON.stringify(localData.value))
-}
-
-function getLocal(poName) {
-  if (!localData.value[poName]) {
-    localData.value[poName] = { description: '', actualDate: '' }
-  }
-  return localData.value[poName]
-}
+// 問題9：「形容 / 實際收貨時間」改存服務器（以前只存瀏覽器 localStorage，別人看唔到、忘 save 就丟）。
+//   - 兩個欄直接綁在 po 物件上（po.description / po.actual_date，隨列表由後端帶來）
+//   - 在欄位失焦(blur)時自動寫服務器 → 員工不用記得按 save，也不會丟
+//   - 每次帶 po.last_modified_at 做樂觀鎖；別人改過 → 409 → 載入最新值並提示，不靜默覆蓋
+const savingNote = ref(new Set())   // 正在保存的 po_name（避免重複提交 + UI 提示）
 
 // 隱藏 supplier：parttime 用戶睇唔到
 const hideSupplier = computed(() => auth.isParttime)
+
+async function saveNote(po) {
+  if (!po || savingNote.value.has(po.po_name)) return
+  savingNote.value = new Set(savingNote.value).add(po.po_name)
+  try {
+    const res = await poApi.saveDashboardNote(po.po_name, {
+      description: po.description || '',
+      actual_date: po.actual_date || '',
+      _last_modified_at: po.last_modified_at,
+    })
+    if (res.ok) {
+      po.description = res.description
+      po.actual_date = res.actual_date
+      po.last_modified_at = res.server_time
+      showToast('✅ 已儲存', 'success', 1200)
+    }
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    const status = err.response?.status
+    const data = err.response?.data || {}
+    if (status === 409) {
+      // 别人在你打開後改過此 PO → 載入服務器最新值（不靜默覆蓋），給新 token 讓你改完可再存
+      po.description = data.server_description || ''
+      po.actual_date = data.server_actual_date || ''
+      po.last_modified_at = data.server_time
+      showToast(
+        `⚠️ 此 PO 已被 ${data.modified_by || '其他用戶'} 修改，已載入最新值，請確認後再改`,
+        'warning', 5000,
+      )
+    } else if (status === 422) {
+      showToast(data.detail || '此 PO 狀態不允許儲存', 'warning')
+    } else if (status === 404) {
+      showToast('PO 不存在（可能已被刪除）', 'error')
+    } else {
+      showToast(data.error || '儲存失敗', 'error')
+    }
+  } finally {
+    const s = new Set(savingNote.value)
+    s.delete(po.po_name)
+    savingNote.value = s
+  }
+}
 
 async function fetchList() {
   loading.value = true
@@ -65,7 +91,7 @@ function goToCounting(po) {
 
 // 點擊跳去 allocation 頁（必須先填形容）
 function goToAllocation(po) {
-  const desc = (getLocal(po.po_name).description || '').trim()
+  const desc = (po.description || '').trim()
   if (!desc) {
     showToast('請先填寫「形容」再進入分配', 'warning')
     return
@@ -165,14 +191,15 @@ function progressText(po) {
               {{ po.partner_name || '—' }}
             </td>
 
-            <!-- 形容 (editable, localStorage) -->
+            <!-- 形容 (存服務器，失焦自動 save + 樂觀鎖) -->
             <td @click.stop>
               <input
-                v-model="getLocal(po.po_name).description"
+                v-model="po.description"
                 type="text"
                 class="g-input w-full text-xs py-1 px-2"
                 placeholder="備註…"
-                @input="saveLocalData()"
+                :disabled="savingNote.has(po.po_name)"
+                @change="saveNote(po)"
               />
             </td>
 
@@ -181,13 +208,14 @@ function progressText(po) {
               {{ po.date_planned || '—' }}
             </td>
 
-            <!-- 實際收貨時間 (editable, localStorage) -->
+            <!-- 實際收貨時間 (存服務器，失焦自動 save + 樂觀鎖) -->
             <td @click.stop>
               <input
-                v-model="getLocal(po.po_name).actualDate"
+                v-model="po.actual_date"
                 type="date"
                 class="g-input text-sm py-1 px-2"
-                @input="saveLocalData()"
+                :disabled="savingNote.has(po.po_name)"
+                @change="saveNote(po)"
               />
             </td>
 
