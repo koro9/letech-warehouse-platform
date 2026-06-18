@@ -247,8 +247,13 @@ async function doValidate(force) {
       .filter(it => it.sku)
       .map(it => ({ sku: it.sku, qty: it.scanned }))
 
-    await outbound.validateOutbound(pickingId.value, quantities, force)
-    showToast('✅ 出庫完成', 'success')
+    const res = await outbound.validateOutbound(pickingId.value, quantities, force)
+    // 用戶 spec 2026-06-18: 强制出库 0 件 → 后端取消发货单,提示「已取消」(库存未动)
+    if (res && res.cancelled) {
+      showToast('🚫 已取消該發貨單(0 件,庫存未動)', 'warning')
+    } else {
+      showToast('✅ 出庫完成', 'success')
+    }
     reset()
     nextTick(() => orderInputEl.value?.focus())
   } catch (err) {
