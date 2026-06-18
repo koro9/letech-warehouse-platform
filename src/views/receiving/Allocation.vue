@@ -968,7 +968,7 @@ onActivated(_autoLoadFromQuery)
     <div class="flex-1 overflow-auto p-3 sm:p-4">
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="overflow-auto" style="max-height: calc(100vh - 220px); min-height: 220px;">
-          <table class="text-left text-xs border-collapse" style="table-layout:fixed;">
+          <table class="w-full text-left text-xs border-collapse" style="table-layout:fixed;">
             <thead class="sticky top-0 z-10">
               <tr class="border-b-2 border-gray-200" style="background:#f9fafb;">
                 <th class="px-2.5 py-2 text-center text-[11px] font-semibold text-gray-500 relative" :style="{ width: colWidths.qty + 'px' }">總數<span class="col-resize-handle" @mousedown="startColResize('qty', $event)"></span></th>

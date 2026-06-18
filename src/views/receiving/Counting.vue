@@ -161,6 +161,37 @@ const labelTypeBadges = computed(() => {
 const curPk = computed(() => curSKU.value ? pk[curSKU.value] : null)
 const hasDates = computed(() => (curPk.value?.dates.length || 0) > 0)
 
+// FEFO 商品标记 — 来自后端 item.is_fefo（产品类别 Goods(FEFO)），
+// 这类商品必须填到期日才能正确 FEFO 出库
+const isFefoItem = computed(() => !!curItem.value?.is_fefo)
+
+// FEFO 强制校验 — 在 save / 返回 动作开头调用
+// 规则：当前打开的 SKU 若是 FEFO 商品，且已录了数量（总量 > 0）但没填到期日，
+//      → 阻止动作并提示。没录数量 / 没打开 SKU / 已填到期日 → 放行。
+// 返回 true = 通过（可继续）；false = 拦截（调用方应 return）
+function fefoGateOk() {
+  const it = curItem.value
+  const d = curPk.value
+  if (!it || !d || !it.is_fefo) return true
+  // 已填到期日 → 直接放行
+  if ((d.dates?.length || 0) > 0) return true
+  // dates 为空：累加 a 里所有数量，判断有没有录入量
+  let total = 0
+  const a = d.a || {}
+  for (const allocId in a) {
+    const whs = a[allocId] || {}
+    for (const w in whs) {
+      const entries = whs[w] || {}
+      for (const k in entries) total += parseInt(entries[k]) || 0
+    }
+  }
+  if (total > 0) {
+    showToast('FEFO 商品必須先填到期日才能保存/返回', 'warning')
+    return false
+  }
+  return true
+}
+
 const detailStats = computed(() => {
   const it = curItem.value
   if (!it) return null
@@ -261,6 +292,7 @@ async function loadPO(opts = {}) {
 }
 
 function backToPO() {
+  if (!fefoGateOk()) return   // FEFO 商品录了量没填到期日 → 拦截
   if (dirtySkus.size > 0
       && !confirm(`有 ${dirtySkus.size} 項未儲存的修改，確定離開？`)) {
     return
@@ -269,7 +301,10 @@ function backToPO() {
   curSKU.value = null
 }
 
-function backToList() { curSKU.value = null }
+function backToList() {
+  if (!fefoGateOk()) return   // FEFO 商品录了量没填到期日 → 拦截
+  curSKU.value = null
+}
 
 async function refreshData() {
   if (!curPO.value) return
@@ -459,6 +494,7 @@ function buildPayloadRow(sku) {
 
 async function saveAll() {
   if (saving.value) return
+  if (!fefoGateOk()) return   // FEFO 商品录了量没填到期日 → 拦截，不保存
   if (dirtySkus.size === 0) {
     showToast('沒有需要儲存的修改', 'warning')
     return
@@ -526,6 +562,7 @@ async function saveAll() {
 
 // 詳情頁保存:存成功(無衝突/無錯誤)後直接返回 SKU 列表
 async function saveAndBack() {
+  if (!fefoGateOk()) return   // FEFO 商品录了量没填到期日 → 拦截（早返回，单次提示）
   const ok = await saveAll()
   if (ok) backToList()
 }
@@ -812,6 +849,13 @@ onActivated(_autoLoadFromQuery)
     </div>
     <div class="flex items-center gap-2 mb-2.5 flex-wrap">
       <span class="font-mono text-xs font-bold">條碼: {{ curItem.barcode }}</span>
+      <!-- FEFO 徽章 — item.is_fefo（产品类别 Goods(FEFO)）：提醒必须填到期日 -->
+      <span v-if="isFefoItem"
+            class="inline-block px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap"
+            style="background:#fff7ed;color:#c2410c;border:1px solid #fdba74;"
+            title="FEFO 商品：必須填到期日才能保存/返回">
+        ⏳ FEFO
+      </span>
       <!-- 标签类型徽章 — 食品 / 保健 / 蟲蟲 / 滅火筒 + (果凍警告) -->
       <!-- 普通(ordinary_label) 故意不显示，跟用户约定 -->
       <span v-for="(b, i) in labelTypeBadges" :key="i"
