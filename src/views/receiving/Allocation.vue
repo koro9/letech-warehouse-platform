@@ -55,6 +55,87 @@ const extraCols = reactive([
   { name: '', active: false },
 ])
 
+// ============================================================
+// 列宽拖动（column resize）
+// ============================================================
+// 每个固定列宽度存在 colWidths 里 + localStorage（key: COL_WIDTHS_KEY），
+// 刷新后保留用户调过的宽度。表格用 table-layout: fixed，每个固定 th 绑 :style width。
+const COL_WIDTHS_KEY = 'alloc_col_widths'
+const COL_MIN_W = 40
+// 默认宽度 — Name 给宽一点让长商品名显示全；数字列窄，文本列中等
+const DEFAULT_COL_WIDTHS = {
+  qty: 60,       // 總數
+  counted: 60,   // 現點
+  box: 60,       // 箱入
+  totalBox: 70,  // 總箱數
+  remarks: 140,  // Remarks
+  barcode: 120,  // Barcode
+  sku: 110,      // SKU
+  name: 280,     // Name（默认宽一点）
+  tpl: 70,       // 3PL
+  ws: 70,        // WS
+  sd4: 70,       // SD4
+}
+// 非固定列（table-fixed 也需要 width，但不强制 resize handle）
+const EXTRA_COL_W = 90    // 动态额外列
+const ADDCOL_W = 44       // 加列 + 按钮列
+const ACTION_W = 56       // 操作列
+
+function _loadColWidths() {
+  const merged = { ...DEFAULT_COL_WIDTHS }
+  try {
+    const raw = localStorage.getItem(COL_WIDTHS_KEY)
+    if (raw) {
+      const saved = JSON.parse(raw)
+      for (const k in merged) {
+        if (typeof saved[k] === 'number' && saved[k] >= COL_MIN_W) merged[k] = saved[k]
+      }
+    }
+  } catch (e) { /* localStorage 不可用或 JSON 坏了 — 用默认值 */ }
+  return merged
+}
+
+const colWidths = reactive(_loadColWidths())
+
+function _saveColWidths() {
+  try {
+    localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths))
+  } catch (e) { /* 忽略写入失败 */ }
+}
+
+// resize 拖动状态（闭包变量，拖动期间持有）
+let _resizeKey = null
+let _resizeStartX = 0
+let _resizeStartW = 0
+
+function _onColResizeMove(e) {
+  if (!_resizeKey) return
+  const delta = e.clientX - _resizeStartX
+  colWidths[_resizeKey] = Math.max(COL_MIN_W, _resizeStartW + delta)
+}
+
+function _onColResizeUp() {
+  _resizeKey = null
+  window.removeEventListener('mousemove', _onColResizeMove)
+  window.removeEventListener('mouseup', _onColResizeUp)
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+  _saveColWidths()
+}
+
+// th 右边缘 handle 的 mousedown — 记录起始 x 和列宽，挂 window 监听
+function startColResize(key, e) {
+  e.preventDefault()
+  e.stopPropagation()
+  _resizeKey = key
+  _resizeStartX = e.clientX
+  _resizeStartW = colWidths[key] || DEFAULT_COL_WIDTHS[key] || 80
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = 'col-resize'
+  window.addEventListener('mousemove', _onColResizeMove)
+  window.addEventListener('mouseup', _onColResizeUp)
+}
+
 // dirty tracking — 用户改过哪些行（save 时只送这些）
 const dirtyLineIds = reactive(new Set())
 
@@ -781,6 +862,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', onMenuResize)
   window.removeEventListener('keydown', onMenuEsc)
   window.removeEventListener('mousedown', onMenuOutsideClick)
+  // 列宽拖动可能正在进行 — 兜底清掉监听
+  window.removeEventListener('mousemove', _onColResizeMove)
+  window.removeEventListener('mouseup', _onColResizeUp)
 })
 
 // 深鏈接 — 從 Dashboard 或 Odoo 跳過來時 ?po=P00007 自動載入
@@ -884,21 +968,21 @@ onActivated(_autoLoadFromQuery)
     <div class="flex-1 overflow-auto p-3 sm:p-4">
       <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="overflow-auto" style="max-height: calc(100vh - 220px); min-height: 220px;">
-          <table class="w-full text-left text-xs border-collapse">
+          <table class="text-left text-xs border-collapse" style="table-layout:fixed;">
             <thead class="sticky top-0 z-10">
               <tr class="border-b-2 border-gray-200" style="background:#f9fafb;">
-                <th class="px-2.5 py-2 text-center text-[11px] font-semibold text-gray-500">總數</th>
-                <th class="px-2.5 py-2 text-center text-[11px]" style="color:#0d9488;background:#f0fdfa;">現點</th>
-                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500">箱入</th>
-                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500">總箱數</th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500">Remarks</th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500">Barcode</th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500">SKU</th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500">Name</th>
-                <th class="px-2.5 py-2 text-center text-[11px]" style="color:#1d4ed8;background:#eff6ff;">3PL</th>
-                <th class="px-2.5 py-2 text-center text-[11px]" style="color:#065f46;background:#ecfdf5;">WS</th>
-                <th class="px-2.5 py-2 text-center text-[11px]" style="color:#5b21b6;background:#f5f3ff;">SD4</th>
-                <th v-for="c in activeExtraCols" :key="c.index" class="px-1.5 py-2 text-center relative" style="background:#fffbeb;">
+                <th class="px-2.5 py-2 text-center text-[11px] font-semibold text-gray-500 relative" :style="{ width: colWidths.qty + 'px' }">總數<span class="col-resize-handle" @mousedown="startColResize('qty', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.counted + 'px' }" style="color:#0d9488;background:#f0fdfa;">現點<span class="col-resize-handle" @mousedown="startColResize('counted', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.box + 'px' }">箱入<span class="col-resize-handle" @mousedown="startColResize('box', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.totalBox + 'px' }">總箱數<span class="col-resize-handle" @mousedown="startColResize('totalBox', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.remarks + 'px' }">Remarks<span class="col-resize-handle" @mousedown="startColResize('remarks', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.barcode + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.sku + 'px' }">SKU<span class="col-resize-handle" @mousedown="startColResize('sku', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.name + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.ws + 'px' }" style="color:#065f46;background:#ecfdf5;">WS<span class="col-resize-handle" @mousedown="startColResize('ws', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.sd4 + 'px' }" style="color:#5b21b6;background:#f5f3ff;">SD4<span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></th>
+                <th v-for="c in activeExtraCols" :key="c.index" class="px-1.5 py-2 text-center relative" :style="{ width: EXTRA_COL_W + 'px' }" style="background:#fffbeb;">
                   <input
                     v-model="extraCols[c.index].name"
                     placeholder="倉位名"
@@ -920,10 +1004,10 @@ onActivated(_autoLoadFromQuery)
                     </button>
                   </div>
                 </th>
-                <th v-if="canAddCol" class="px-1.5 py-2 text-center">
+                <th v-if="canAddCol" class="px-1.5 py-2 text-center" :style="{ width: ADDCOL_W + 'px' }">
                   <button class="w-6 h-6 rounded-md text-white border-0 cursor-pointer text-sm" style="background:#f59e0b;" @click="addCol">+</button>
                 </th>
-                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500">操作</th>
+                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500" :style="{ width: ACTION_W + 'px' }">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -966,7 +1050,7 @@ onActivated(_autoLoadFromQuery)
                   </td>
                   <td class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
                   <td class="px-2.5 py-2 font-mono text-[11px] font-bold">{{ row.sku }}</td>
-                  <td class="px-2.5 py-2 text-xs max-w-[160px] truncate" :title="row.name">{{ row.name }}</td>
+                  <td class="px-2.5 py-2 text-xs truncate" :title="row.name">{{ row.name }}</td>
 
                   <!-- 3PL -->
                   <td class="px-1.5 py-2 text-center" style="background:rgba(239,246,255,.4);">
@@ -1222,3 +1306,23 @@ onActivated(_autoLoadFromQuery)
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+/* 列宽拖动 handle — 贴在 th 右边缘的竖条，hover 高亮 */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 5;
+}
+.col-resize-handle:hover {
+  background: #93c5fd;
+}
+.col-resize-handle:active {
+  background: #2563eb;
+}
+</style>
