@@ -24,7 +24,7 @@ import { outbound, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import RefreshButton from '@/components/RefreshButton.vue'
-import { printBarcodeLabel, printLabels } from '@/utils/labelRenderers'
+import { printLabels } from '@/utils/labelRenderers'
 
 // ============================================================
 // 状态
@@ -164,15 +164,12 @@ async function autoPrintLabelForItem(item) {
     showToast(`${item.sku} 標籤資料載入超時`, 'warning')
     return
   }
-  if (!cached.product && (!cached.labels || !cached.labels.length)) {
-    showToast(`找不到 ${item.sku} 的標籤資料`, 'warning')
-    return
-  }
-  if (cached.product) {
-    printBarcodeLabel(cached.product, 1)
-  }
+  // 用戶 spec 2026-06-18: 出库只打 Label Master 标签,不打条码标签(去掉 printBarcodeLabel)。
+  //   冇 master 資料 → 咩都唔打 + 右上角 tips。
   if (cached.labels && cached.labels.length) {
     printLabels(cached.labels, 1)
+  } else {
+    showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
   }
 }
 
@@ -230,16 +227,12 @@ function printLabelForItem(item) {
     if (!cached) preloadLabel(item)
     return
   }
-  if (!cached.product && (!cached.labels || !cached.labels.length)) {
-    showToast(`找不到 ${item.sku} 的標籤資料`, 'error')
-    return
-  }
+  // 用戶 spec 2026-06-18: 只打 Label Master 标签,不打条码标签。冇 master → tips。
   // 同步 click → 同步 window.open，user gesture 链完整
-  if (cached.product) {
-    printBarcodeLabel(cached.product, 1)
-  }
   if (cached.labels && cached.labels.length) {
     printLabels(cached.labels, 1)
+  } else {
+    showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
   }
 }
 
