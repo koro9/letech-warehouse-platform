@@ -207,9 +207,17 @@ function pickOrdinaryFontSize(text) {
 function renderFoodLabel(d) {
   if (!d) return { html: missingHtml('食品營養標籤') }
 
-  const expiry = formatExpiryDate(d.expiry_date)
-  const expiryEn = expiry.en
-  const expiryZh = expiry.zh
+  // Best before 格式 — 旧 label.py get_expiry_date_text 取 Expiry_Date_Format(AE),
+  // fallback expiry_date(AD)。中文 sub-text 已 deprecated。
+  const expiryFmt = String(d.expiry_date_format ?? d.expiry_date ?? '').trim()
+
+  // Ingredients + Allergen(P)— 旧 generate_food_label:有致敏物就接落成分末尾
+  let ingredientText = String(d.ingredients ?? '').trim()
+  const allergenText = String(d.allergen ?? '').trim()
+  if (allergenText && allergenText.toLowerCase() !== 'nan') {
+    const sep = ingredientText && !/[.。 ]$/.test(ingredientText) ? ' ' : ''
+    ingredientText = `${ingredientText}${sep}Allergen specified ingredients: ${allergenText}`
+  }
 
   // 营养表 10 行（label, 字段值）— 跟旧 generate_food_label 严格对齐
   const rows = [
@@ -234,17 +242,11 @@ function renderFoodLabel(d) {
     `
   }
 
-  // Best before 三行（YY 格式或具体日期，由 expiry_date 决定）
-  const beforeBlock = expiryEn
-    ? `
-      <div style="position:absolute; bottom:6.8mm; left:50mm; font-size:${DEFAULT_FZ};">Best before(${esc(expiryEn)}):</div>
-      <div style="position:absolute; bottom:4.8mm; left:50mm; font-size:${DEFAULT_FZ};">此日期前最佳(${esc(expiryZh)})</div>
-      <div style="position:absolute; bottom:2.8mm; left:50mm; font-size:${DEFAULT_FZ};">Show on package(見包裝)</div>
-    `
-    : `
-      <div style="position:absolute; bottom:6.8mm; left:50mm; font-size:${DEFAULT_FZ};">Best before(Date Format):</div>
-      <div style="position:absolute; bottom:4.8mm; left:50mm; font-size:${DEFAULT_FZ};">此日期前最佳(Format CHI)</div>
-      <div style="position:absolute; bottom:2.8mm; left:50mm; font-size:${DEFAULT_FZ};">Show on package(見包裝)</div>
+  // Best before 两行 — 对齐旧 generate_food_label(中文 sub-text 已 deprecated):
+  //   "Best before(格式):" + "Show on package",格式取 Expiry_Date_Format(AE)
+  const beforeBlock = `
+      <div style="position:absolute; bottom:5.5mm; left:50mm; font-size:${DEFAULT_FZ};">Best before(${esc(expiryFmt || 'Date Format')}):</div>
+      <div style="position:absolute; bottom:2.5mm; left:50mm; font-size:${DEFAULT_FZ};">Show on package</div>
     `
 
   // 分割线（1.5px 黑线）
@@ -267,11 +269,11 @@ function renderFoodLabel(d) {
 
       <!-- 中右 — Ingredients 自适应段落（旧 draw_paragraph 顶部锚定 y=38，向下排；
            故用 top 定位贴顶，与左边 Nutrition 标题齐平，而非 bottom 贴底往上长） -->
-      <div style="position:absolute; top:10mm; left:26.5mm; width:40mm; max-height:27.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word; word-break:break-word;">${esc(d.ingredients ?? '')}</div>
+      <div style="position:absolute; top:10mm; left:26.5mm; width:40mm; max-height:27.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word; word-break:break-word;">${esc(ingredientText)}</div>
 
-      <!-- 下左 — Madeby_Prefix 段落 (T 列)（旧 draw_paragraph 顶部锚定 y=4.8 → 顶边≈7.3mm，
-           贴在底部分割线 8.8mm 之下向下排；故用 top 定位，而非 bottom 沉到最底） -->
-      <div style="position:absolute; top:42.5mm; left:2mm; width:43mm; max-height:6mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.madeby_prefix ?? '')}</div>
+      <!-- 下左 — Madeby_Prefix 段落 (T 列) + Storage (U 列) 在其下方，对齐旧 generate_food_label -->
+      <div style="position:absolute; top:42.5mm; left:2mm; width:43mm; max-height:4mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.madeby_prefix ?? '')}</div>
+      <div style="position:absolute; bottom:2.5mm; left:2mm; width:43mm; max-height:3mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.storage ?? '')}</div>
 
       <!-- 下右 — Best before -->
       ${beforeBlock}
