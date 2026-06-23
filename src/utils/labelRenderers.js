@@ -374,16 +374,17 @@ function renderSpecialLabel(d) {
     d.warning_text,
   ]
 
-  // 用 flex 自上而下排版（避免计算每段精确 y 坐标）
+  // 自上而下排版。字号/行高只放在容器(.label-fit)上,子块不设字号 → 继承;
+  // 打印前 autofitAll 会缩容器字号到不溢出,子块跟着缩(随字数增加自动缩小,内容全保留)。
   let blocks = ''
   for (const v of fields) {
     if (!v) continue
-    blocks += `<div style="font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; margin-bottom:2mm; word-wrap:break-word;">${esc(v)}</div>`
+    blocks += `<div style="margin-bottom:1.5mm; word-wrap:break-word;">${esc(v)}</div>`
   }
 
   return {
     html: `
-      <div style="position:absolute; top:4mm; left:2mm; right:2mm; bottom:2mm; overflow:hidden;">
+      <div class="label-fit" style="position:absolute; top:3mm; left:2mm; width:66mm; max-height:45mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-break:break-word;">
         ${blocks}
       </div>
     `,
