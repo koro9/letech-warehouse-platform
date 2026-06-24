@@ -276,6 +276,13 @@ function isCutTr(tr) {
 // ============================================================
 // 加载 PO + TR list
 // ============================================================
+// 纯名称:从 displayName(= "[SKU] 名称")去掉前面的 "[SKU] " 前缀。
+// 没有方括号前缀的(display_name 无 code)则原样返回。供品项列灰色行显示全名。
+function pureName(g) {
+  const dn = (g && g.displayName) || ''
+  return dn.replace(/^\[[^\]]*\]\s*/, '') || dn
+}
+
 // Detect whether input is a PO name (starts P + digits) or a TR/picking name
 function _looksLikePO(v) {
   // PO 命名多样:Odoo 默认序列 Pxxxxx、从 Dear 导入的 PO-xxxx、以及 NY-/KB-/COT- 等原始单号。
@@ -1445,7 +1452,7 @@ onBeforeUnmount(() => {
               style="background:linear-gradient(90deg,#fed7aa,#fce7f3);color:#c2410c;border-color:#fdba74;"
             >BOM</span>
           </div>
-          <div class="text-[11px] text-slate-400 truncate">{{ g.displaySku }}{{ g.labelType ? ' · ' + g.labelType : '' }}</div>
+          <div class="text-[11px] text-slate-400 break-words">{{ pureName(g) }}{{ g.labelType ? ' · ' + g.labelType : '' }}</div>
         </div>
         <div class="w-11 text-center text-sm font-bold text-slate-700">{{ (g.items || []).reduce((a,i) => a+(parseInt(i.reqQty)||0), 0) }}</div>
         <div
@@ -1502,7 +1509,7 @@ onBeforeUnmount(() => {
               style="background:linear-gradient(90deg,#fed7aa,#fce7f3);color:#c2410c;border-color:#fdba74;"
             >BOM</span>
           </div>
-          <div class="text-[11px] text-slate-400 truncate">{{ g.displaySku }}{{ g.labelType ? ' · ' + g.labelType : '' }}</div>
+          <div class="text-[11px] text-slate-400 break-words">{{ pureName(g) }}{{ g.labelType ? ' · ' + g.labelType : '' }}</div>
         </div>
         <div class="w-14 text-center text-sm font-black text-slate-700">{{ (g.items || []).reduce((a,i) => a+(parseInt(i.reqQty)||0), 0) }}</div>
       </div>
@@ -1872,7 +1879,7 @@ onBeforeUnmount(() => {
           >
             <div class="min-w-0">
               <div class="text-sm font-bold text-slate-700 truncate">{{ g.displayName }}</div>
-              <div class="text-[11px] text-slate-400">{{ g.displaySku }}</div>
+              <div class="text-[11px] text-slate-400 break-words">{{ pureName(g) }}</div>
             </div>
             <div class="text-sm font-black text-slate-700 shrink-0 ml-3">
               {{ (g.items || []).reduce((a,i) => a + (parseInt(i.pickQty) || parseInt(i.reqQty) || 0), 0) }}
