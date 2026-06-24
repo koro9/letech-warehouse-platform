@@ -278,7 +278,10 @@ function isCutTr(tr) {
 // ============================================================
 // Detect whether input is a PO name (starts P + digits) or a TR/picking name
 function _looksLikePO(v) {
-  return /^P\d/i.test(v)
+  // PO 命名多样:Odoo 默认序列 Pxxxxx、从 Dear 导入的 PO-xxxx、以及 NY-/KB-/COT- 等原始单号。
+  // 旧正则 /^P\d/ 只认 Pxxxxx,导致带前缀/异格式的 PO(生产 401 个里 400 个)被误判成 TR。
+  // 策略:除非看起来是 TR(TR-xxxx)或 Odoo 库存 picking(含 '/',如 WH/IN/...),否则一律当 PO。
+  return !/^TR-/i.test(v) && !v.includes('/')
 }
 
 async function searchPO() {
