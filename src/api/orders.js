@@ -102,6 +102,7 @@ export async function downloadWaybillLabel(itemId, fallbackFileName) {
   // axios 拦截器看 content-type ≠ json 时透传整个 response，blob 会落到 .data
   const blob = await http.get(`/warehouse/orders/${itemId}/waybill-label`, {
     responseType: 'blob',
+    timeout: 0,  // 大文件下载取消30s超时,避免慢网误判失败
   })
 
   // 触发浏览器另存

@@ -58,6 +58,7 @@ export async function downloadLabel(labelId, fallbackFileName) {
   // 拦截器看 content-type ≠ json 时会把 response 整体透传。
   const blob = await http.get(`/warehouse/shipping/labels/${labelId}/download`, {
     responseType: 'blob',
+    timeout: 0,  // 大文件下载取消30s超时,避免慢网误判失败
   })
 
   // 触发浏览器另存
