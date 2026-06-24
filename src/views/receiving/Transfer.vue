@@ -538,6 +538,41 @@ async function reloadTRList() {
   }
 }
 
+// 「更新數據」按钮:① 先拉最新数据(防止有人在 Odoo / 别处并发改动)
+//                    ② 若收貨分配后来加了新 SKU(uncovered),增量补充 TR
+//                       —— 增量生成只为新 SKU 建「补充 TR」,绝不动已有 TR/进度。
+async function refreshAndSyncTRs() {
+  if (!curPO.value || loading.value) return
+  loading.value = true
+  try {
+    await reloadTRList()                       // 先刷新最新
+    if (!hasUncovered.value) {
+      showToast('✅ 已刷新,无新增 SKU', 'success')
+      return
+    }
+    const n = uncoveredLines.value.length       // 新增 SKU 数
+    const res = await poApi.generateTransfers(curPO.value)
+    await reloadTRList()
+    const count = res?.count || 0
+    showToast(`✅ 已同步 ${n} 个新增 SKU,新建 ${count} 张补充 TR(原有 TR 进度不变)`, 'success')
+  } catch (err) {
+    if (err.handledByInterceptor) return
+    const status = err.response?.status
+    const data = err.response?.data || {}
+    if (status === 422 && (data.error === 'no_allocation' || data.error === 'all_skipped')) {
+      await reloadTRList()
+      showToast('✅ 已刷新,暂无可生成的新增 SKU', 'success')
+    } else if (status === 409) {
+      await reloadTRList()
+      showToast(data.detail || '其他人正在生成 TR,请稍后再试', 'warning')
+    } else {
+      showToast(data.detail || data.error || '更新失败', 'error')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
 // ============================================================
 // 进入 / 退出某 TR
 // ============================================================
@@ -1135,6 +1170,18 @@ onBeforeUnmount(() => {
                   :title="autoRefresh ? '自動刷新已開啟（每 10 秒）；點擊暫停' : '自動刷新已暫停；點擊開啟'"
                   @click="autoRefresh = !autoRefresh"></button>
         </div>
+        <button
+          v-if="trList.length > 0"
+          class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer disabled:opacity-50 relative"
+          style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.1);"
+          :disabled="loading"
+          title="刷新最新数据;若收货分配新增了 SKU,会增量补充 TR(不影响已有进度)"
+          @click="refreshAndSyncTRs"
+        >🔄 {{ loading ? '更新中…' : '更新數據' }}
+          <span v-if="hasUncovered"
+                class="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-[10px] font-black text-amber-900 flex items-center justify-center"
+          >{{ uncoveredLines.length }}</span>
+        </button>
         <button
           v-if="trList.length > 0"
           class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-bold cursor-pointer"
