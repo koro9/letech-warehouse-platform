@@ -217,6 +217,16 @@ export function generateTransfers(poName) {
 }
 
 /**
+ * 从产品重新同步已有 TR 明细的 barcode/名称(改产品 barcode 后用)。
+ * 只刷新显示/扫码字段,不动数量/进度。
+ * 后端契约：POST /api/warehouse/po/<po_name>/transfers/resync → { ok, tr_count, updated }
+ */
+export function resyncTransfers(poName) {
+  const safe = encodeURIComponent(poName)
+  return http.post(`/warehouse/po/${safe}/transfers/resync`, {})
+}
+
+/**
  * 拿单张 TR 完整详情（含 groups_data）。
  *
  * 后端契约：GET /api/warehouse/transfer/<tr_id>

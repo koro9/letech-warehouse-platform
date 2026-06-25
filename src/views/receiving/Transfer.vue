@@ -545,9 +545,12 @@ async function refreshAndSyncTRs() {
   if (!curPO.value || loading.value) return
   loading.value = true
   try {
-    await reloadTRList()                       // 先刷新最新
+    // 从产品重新同步已有 TR 明细的 barcode/名称(改产品 barcode 后能拿到最新),
+    // 只刷显示/扫码字段,不动数量/进度。静默失败不阻断后续刷新。
+    try { await poApi.resyncTransfers(curPO.value) } catch (e) { /* ignore */ }
+    await reloadTRList()                       // 再刷新最新列表
     if (!hasUncovered.value) {
-      showToast('✅ 已刷新,无新增 SKU', 'success')
+      showToast('✅ 已刷新(barcode/名称已同步),无新增 SKU', 'success')
       return
     }
     const n = uncoveredLines.value.length       // 新增 SKU 数
