@@ -114,6 +114,19 @@ export function retryLabel(labelId) {
 }
 
 /**
+ * 補抓部分失敗批次裡缺失的運單面單。只有 status='done' 且確有缺失面單的批次先得。
+ * 後端會重投 async job(續傳式:只抓缺的、重并全部);抓齊則 ⚠️ 自動消失。
+ *
+ * 後端契約:
+ *   POST /api/warehouse/shipping/labels/<id>/refetch
+ *   200 → { ok: true, id, status: 'processing' }
+ *   400 not_done / nothing_to_refetch / 404 label_not_found
+ */
+export function refetchLabel(labelId) {
+  return http.post(`/warehouse/shipping/labels/${labelId}/refetch`)
+}
+
+/**
  * 查询当前 today / tomorrow 是否有人在生成。前端 2.5s 轮询。
  *
  * 后端契约：

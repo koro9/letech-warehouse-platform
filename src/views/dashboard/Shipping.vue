@@ -52,6 +52,7 @@ const historyLabels = ref([])
 const loading = ref(false)        // 任何一个加载中
 const downloadingId = ref(null)   // 正在下载的 label id（按钮 spinner）
 const retryingId = ref(null)      // 正在重試的 label id（按钮 spinner）
+const refetchingId = ref(null)    // 正在補抓缺失運單的 label id（按钮 spinner）
 
 // 历史板块分页 — 跟运单页同款
 const PAGE_SIZE = 40
@@ -201,6 +202,31 @@ async function retryLabel(label) {
     }
   } finally {
     retryingId.value = null
+  }
+}
+
+// ============================================================
+// 補抓部分失敗批次裡缺失的運單面單（⚠️ partial failure 專用）
+// status='done' 但有運單冇抓到 → 重投 async job 續傳，抓齊則 ⚠️ 消失。
+// 補抓後 status 翻 processing，reload 讓進度即時顯示。
+// ============================================================
+async function refetchMissing(label) {
+  if (refetchingId.value === label.id) return
+  refetchingId.value = label.id
+  try {
+    await shipping.refetchLabel(label.id)
+    showToast('🔄 已重新補抓缺失運單，處理中…', 'success')
+    await loadAll()
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      const code = err.response?.data?.error
+      const msg = code === 'nothing_to_refetch'
+        ? '冇缺失運單可補抓'
+        : (code || '補抓失敗')
+      showToast(msg, 'error')
+    }
+  } finally {
+    refetchingId.value = null
   }
 }
 
@@ -462,7 +488,17 @@ function rowClass(r) {
                     {{ downloadingId === r.id ? '下載中…' : '下載' }}
                   </button>
                   <button
-                    v-else-if="rowState(r) === 'failed'"
+                    v-if="rowState(r) === 'ready' && hasPartialFailure(r)"
+                    class="g-btn ml-1"
+                    style="padding:5px 12px;font-size:12px;background:#d97706;color:#fff"
+                    :disabled="refetchingId === r.id"
+                    :title="r.failed_reason"
+                    @click="refetchMissing(r)"
+                  >
+                    {{ refetchingId === r.id ? '補抓中…' : '🔄 補抓' }}
+                  </button>
+                  <button
+                    v-if="rowState(r) === 'failed'"
                     class="g-btn"
                     style="padding:5px 16px;font-size:12px;background:#dc2626;color:#fff"
                     :disabled="retryingId === r.id"
@@ -470,7 +506,7 @@ function rowClass(r) {
                   >
                     {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
                   </button>
-                  <span v-else class="text-gray-300">—</span>
+                  <span v-if="rowState(r) !== 'ready' && rowState(r) !== 'failed'" class="text-gray-300">—</span>
                 </td>
               </tr>
             </tbody>
@@ -518,7 +554,17 @@ function rowClass(r) {
                   {{ downloadingId === r.id ? '下載中…' : '下載' }}
                 </button>
                 <button
-                  v-else-if="rowState(r) === 'failed'"
+                  v-if="rowState(r) === 'ready' && hasPartialFailure(r)"
+                  class="g-btn flex-shrink-0"
+                  style="padding:6px 14px;font-size:12px;background:#d97706;color:#fff"
+                  :disabled="refetchingId === r.id"
+                  :title="r.failed_reason"
+                  @click="refetchMissing(r)"
+                >
+                  {{ refetchingId === r.id ? '補抓中…' : '🔄 補抓' }}
+                </button>
+                <button
+                  v-if="rowState(r) === 'failed'"
                   class="g-btn flex-shrink-0"
                   style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff"
                   :disabled="retryingId === r.id"
@@ -526,7 +572,7 @@ function rowClass(r) {
                 >
                   {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
                 </button>
-                <span v-else class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
+                <span v-if="rowState(r) !== 'ready' && rowState(r) !== 'failed'" class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
               </div>
               <div class="text-xs text-gray-500">
                 運單數：<span :class="rowState(r) === 'ready' ? 'font-semibold text-gray-800' : ''">{{ r.waybill_count }}</span>
@@ -645,14 +691,22 @@ function rowClass(r) {
                         @click="downloadLabel(r)">
                   {{ downloadingId === r.id ? '下載中…' : '下載' }}
                 </button>
-                <button v-else-if="rowState(r) === 'failed'"
+                <button v-if="rowState(r) === 'ready' && hasPartialFailure(r)"
+                        class="g-btn ml-1"
+                        style="padding:5px 12px;font-size:12px;background:#d97706;color:#fff"
+                        :disabled="refetchingId === r.id"
+                        :title="r.failed_reason"
+                        @click="refetchMissing(r)">
+                  {{ refetchingId === r.id ? '補抓中…' : '🔄 補抓' }}
+                </button>
+                <button v-if="rowState(r) === 'failed'"
                         class="g-btn"
                         style="padding:5px 16px;font-size:12px;background:#dc2626;color:#fff"
                         :disabled="retryingId === r.id"
                         @click="retryLabel(r)">
                   {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
                 </button>
-                <span v-else class="text-gray-300">—</span>
+                <span v-if="rowState(r) !== 'ready' && rowState(r) !== 'failed'" class="text-gray-300">—</span>
               </td>
             </tr>
           </tbody>
@@ -699,14 +753,22 @@ function rowClass(r) {
                       @click="downloadLabel(r)">
                 {{ downloadingId === r.id ? '下載中…' : '下載' }}
               </button>
-              <button v-else-if="rowState(r) === 'failed'"
+              <button v-if="rowState(r) === 'ready' && hasPartialFailure(r)"
+                      class="g-btn flex-shrink-0"
+                      style="padding:6px 14px;font-size:12px;background:#d97706;color:#fff"
+                      :disabled="refetchingId === r.id"
+                      :title="r.failed_reason"
+                      @click="refetchMissing(r)">
+                {{ refetchingId === r.id ? '補抓中…' : '🔄 補抓' }}
+              </button>
+              <button v-if="rowState(r) === 'failed'"
                       class="g-btn flex-shrink-0"
                       style="padding:6px 14px;font-size:12px;background:#dc2626;color:#fff"
                       :disabled="retryingId === r.id"
                       @click="retryLabel(r)">
                 {{ retryingId === r.id ? '重試中…' : '🔄 重試' }}
               </button>
-              <span v-else class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
+              <span v-if="rowState(r) !== 'ready' && rowState(r) !== 'failed'" class="text-gray-300 flex-shrink-0 px-2 self-center">—</span>
             </div>
             <div class="flex items-center gap-2 flex-wrap text-xs text-gray-500">
               <span>
