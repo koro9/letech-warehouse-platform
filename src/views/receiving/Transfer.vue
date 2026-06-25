@@ -1811,7 +1811,7 @@ onBeforeUnmount(() => {
   <div v-if="showCutModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="closeCutModal">
     <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="closeCutModal"></div>
     <div class="relative w-full max-w-lg mx-4 bg-white rounded-3xl shadow-2xl max-h-[90vh] overflow-hidden flex flex-col">
-      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#fbbf24,#f97316);">✂</div>
@@ -1906,8 +1906,8 @@ onBeforeUnmount(() => {
   <!-- 完成確認 Modal -->
   <div v-if="showCompleteModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="showCompleteModal = false">
     <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="showCompleteModal = false"></div>
-    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden">
-      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#059669,#10b981);">✅</div>
           <div>
@@ -1916,12 +1916,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-      <div class="px-5 py-5">
-        <p class="text-sm text-slate-700 mb-4">
+      <div class="px-5 py-5 flex flex-col flex-1 min-h-0 overflow-hidden">
+        <p class="text-sm text-slate-700 mb-4 flex-shrink-0">
           <template v-if="isLocalDraft">確認一鍵截單並完成出庫？系統將自動截單、建立 picking 並立即完成。</template>
           <template v-else>確認完成此 Transfer？系統將驗證出庫單據（stock.picking）。</template>
         </p>
-        <div class="rounded-xl bg-slate-50 border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+        <div class="rounded-xl bg-slate-50 border border-slate-200 divide-y divide-slate-100 overflow-y-auto flex-1 min-h-0">
           <div
             v-for="g in curGroups"
             :key="g.id"
@@ -1936,7 +1936,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        <div class="mt-4 rounded-xl px-4 py-3 flex gap-2" style="background:#eff6ff;border:1px solid #bfdbfe;">
+        <div class="mt-4 rounded-xl px-4 py-3 flex gap-2 flex-shrink-0" style="background:#eff6ff;border:1px solid #bfdbfe;">
           <span class="shrink-0 mt-0.5" style="color:#2563eb;">ℹ</span>
           <div class="text-xs font-semibold leading-relaxed" style="color:#1d4ed8;">
             <template v-if="isLocalDraft">此操作直接截單並完成出庫（一步到位），不會產生「第二轉」。需先完成收貨入庫。</template>
@@ -1992,8 +1992,8 @@ onBeforeUnmount(() => {
   <!-- 收貨確認 Modal -->
   <div v-if="showReceiveModal" class="fixed inset-0 z-[200] flex items-center justify-center" @click.self="showReceiveModal = false">
     <div class="absolute inset-0" style="background:rgba(0,0,0,.6);backdrop-filter:blur(16px);" @click="showReceiveModal = false"></div>
-    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden">
-      <div class="px-5 pt-5 pb-4 border-b border-gray-100">
+    <div class="relative w-full max-w-md mx-4 bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] sm:max-h-[85vh]">
+      <div class="px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
         <div class="flex items-center gap-3">
           <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-lg" style="background:linear-gradient(135deg,#059669,#10b981);">📦</div>
           <div>
@@ -2002,7 +2002,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-      <div class="px-5 py-5">
+      <div class="px-5 py-5 flex-1 min-h-0 overflow-y-auto">
         <p class="text-sm text-slate-700 mb-3">將基於點貨數據驗收入庫（WH/IN → WH/Stock）：</p>
         <ul class="text-xs text-slate-500 space-y-1.5 list-none p-0">
           <li>• <strong>齊數</strong>：直接收全部</li>
@@ -2011,7 +2011,7 @@ onBeforeUnmount(() => {
           <li>• <strong>未點貨</strong>：不收，留待 Backorder</li>
         </ul>
       </div>
-      <div class="px-5 py-4 border-t border-gray-100 flex gap-3">
+      <div class="px-5 py-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
         <button
           class="flex-1 py-3 bg-transparent rounded-2xl font-bold text-sm cursor-pointer"
           style="border:2px solid #e2e8f0;color:#64748b;"
