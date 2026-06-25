@@ -944,6 +944,11 @@ onActivated(_autoLoadFromQuery)
           <button class="g-btn g-btn-teal" style="padding:10px 18px;" @click="addDate">新增</button>
         </div>
       </div>
+      <!-- 板 — M3b 分配人员手填,点货员只读看到(显示在有效期下方) -->
+      <div v-if="curItem.board" class="date-section flex items-center gap-2">
+        <span class="text-xs font-bold text-gray-600">🧱 板</span>
+        <span class="text-sm font-bold" style="color:#5b21b6;">{{ curItem.board }}</span>
+      </div>
     </div>
 
     <!-- 各 alloc 的录入 -->

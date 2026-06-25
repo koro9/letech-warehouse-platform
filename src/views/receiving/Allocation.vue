@@ -69,6 +69,7 @@ const DEFAULT_COL_WIDTHS = {
   box: 60,       // 箱入
   totalBox: 70,  // 總箱數
   remarks: 140,  // Remarks
+  board: 80,     // 板
   barcode: 120,  // Barcode
   sku: 110,      // SKU
   name: 280,     // Name（默认宽一点）
@@ -308,6 +309,7 @@ async function enterPO() {
         // 保证字段存在，避免 v-model 出错
         tpl:    r.tpl ?? '',
         ws:     r.ws ?? '',
+        board:  r.board ?? '',
         extra:  Array.isArray(r.extra) && r.extra.length >= 2
                   ? r.extra
                   : [{ qty: 0 }, { qty: 0 }],
@@ -558,6 +560,7 @@ async function saveData() {
         })),
         box_qty: parseInt(r.box_qty) || 0,
         remarks: (r.remarks || '').trim(),
+        board: (r.board || '').trim(),
         _last_modified_at: r.last_modified_at,
       }))
 
@@ -646,6 +649,7 @@ async function applyResolutions() {
                   : [{ qty: 0 }, { qty: 0}],
         combos: Array.isArray(c.server_data.combos) ? c.server_data.combos : [],
         remarks: c.server_remarks || '',
+        board: c.server_board || '',
         last_modified_at: c.modified_at,
       })
       dirtyLineIds.delete(c.po_line_id)
@@ -663,6 +667,7 @@ async function applyResolutions() {
           tpl: parseInt(cc.tpl) || 0,
         })),
         remarks: (row.remarks || '').trim(),
+        board: (row.board || '').trim(),
         _last_modified_at: row.last_modified_at,
       })
     }
@@ -731,7 +736,7 @@ function exportExcel() {
   // 表头
   const header = [
     '總數', '現點', '箱入', '總箱數',
-    'Remarks', 'Barcode', 'SKU', 'Name',
+    'Remarks', '板', 'Barcode', 'SKU', 'Name',
     '3PL', 'WS', 'SD4',
     ...extraColNames,
   ]
@@ -746,6 +751,7 @@ function exportExcel() {
       r.box_qty || '',
       r.total_boxes || '',
       r.remarks || '',
+      r.board || '',
       r.barcode || '',
       r.sku || '',
       r.name || '',
@@ -758,7 +764,7 @@ function exportExcel() {
     ;(r.combos || []).forEach(c => {
       dataRows.push([
         '', '', '', '',                      // 总数/现点/箱入/总箱数 空
-        '', '',                              // Remarks/Barcode 空
+        '', '', '',                          // Remarks/板/Barcode 空
         `↳ ${c.sku}`,                        // SKU 缩进
         `${c.name || ''} ${c.label || ''}`.trim(),
         parseInt(c.tpl) || 0,                // 3PL
@@ -772,7 +778,7 @@ function exportExcel() {
   const fs = footerStats.value
   const footerRow = [
     fs.tQ, fs.tCo,
-    '', '', '', '',
+    '', '', '', '', '',
     '合計', '',
     fs.tT, fs.tW, fs.tS,
     ...extraColIdxs.map(i => fs.tE[i] || 0),
@@ -799,6 +805,7 @@ function exportExcel() {
     { wch: 6 },   // 箱入
     { wch: 8 },   // 總箱數
     { wch: 12 },  // Remarks
+    { wch: 8 },   // 板
     { wch: 16 },  // Barcode
     { wch: 14 },  // SKU
     { wch: 32 },  // Name
@@ -976,6 +983,7 @@ onActivated(_autoLoadFromQuery)
                 <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.box + 'px' }">箱入<span class="col-resize-handle" @mousedown="startColResize('box', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.totalBox + 'px' }">總箱數<span class="col-resize-handle" @mousedown="startColResize('totalBox', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.remarks + 'px' }">Remarks<span class="col-resize-handle" @mousedown="startColResize('remarks', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.board + 'px' }">板<span class="col-resize-handle" @mousedown="startColResize('board', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.barcode + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.sku + 'px' }">SKU<span class="col-resize-handle" @mousedown="startColResize('sku', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.name + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
@@ -1045,6 +1053,18 @@ onActivated(_autoLoadFromQuery)
                       maxlength="200"
                       placeholder="—"
                       class="w-full min-w-[120px] px-2 py-1 border rounded text-xs"
+                      style="border-color:#e5e7eb;"
+                    />
+                  </td>
+                  <td class="px-2.5 py-2">
+                    <!-- 板 可编辑 — 分配人员手填，M3a 点货员只读看到(显示在有效期下方) -->
+                    <input
+                      v-model="row.board"
+                      @input="markDirty(row)"
+                      type="text"
+                      maxlength="50"
+                      placeholder="—"
+                      class="w-full px-2 py-1 border rounded text-xs"
                       style="border-color:#e5e7eb;"
                     />
                   </td>
@@ -1235,6 +1255,9 @@ onActivated(_autoLoadFromQuery)
                 <div v-if="c.your_remarks" class="mt-1 text-gray-600 break-all">
                   Remarks: <span class="font-mono">{{ c.your_remarks }}</span>
                 </div>
+                <div v-if="c.your_board" class="mt-1 text-gray-600 break-all">
+                  板: <span class="font-mono">{{ c.your_board }}</span>
+                </div>
               </div>
               <div class="bg-white rounded border border-gray-200 p-2">
                 <div class="text-[11px] font-bold text-emerald-700 mb-1">伺服器最新</div>
@@ -1245,6 +1268,9 @@ onActivated(_autoLoadFromQuery)
                 </div>
                 <div v-if="c.server_remarks" class="mt-1 text-gray-600 break-all">
                   Remarks: <span class="font-mono">{{ c.server_remarks }}</span>
+                </div>
+                <div v-if="c.server_board" class="mt-1 text-gray-600 break-all">
+                  板: <span class="font-mono">{{ c.server_board }}</span>
                 </div>
               </div>
             </div>
