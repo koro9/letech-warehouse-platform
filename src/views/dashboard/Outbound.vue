@@ -66,6 +66,8 @@ async function loadOrder() {
     orderNumber.value    = data.tracking_id || data.code || code
     subOrderNumber.value = data.sub_order_number || ''
     // 方案 B：scanned 永远从 0 开始（前端控制进度，后端没累加）
+    // BOM 母件带 components 子件清单 —— 扫成品母件 1 次 = 1 件；
+    // 或扫子件凑套（扫满 qtyPer 次 = 1 件）。两者都让母件 scanned +1。
     items.value = data.items.map((it) => ({
       sku: it.sku,
       name: it.name,
@@ -73,6 +75,15 @@ async function loadOrder() {
       barcode2: it.barcode2 || '',
       required: it.required_qty,
       scanned: 0,
+      isBom: it.is_bom || false,
+      components: (it.components || []).map((c) => ({
+        sku: c.sku,
+        name: c.name,
+        barcode: c.barcode,
+        qtyPer: c.qty_per,
+        requiredQty: c.required_qty,
+        scanned: 0,   // 当前凑套已扫数（满 qtyPer → 母件 +1 并归零）
+      })),
     }))
     await nextTick()
     skuInputEl.value?.focus()
@@ -109,9 +120,20 @@ async function scanSku() {
     return
   }
 
-  const item = items.value.find(
+  // 先按母件/普通商品匹配
+  let item = items.value.find(
     (i) => i.barcode === code || i.barcode2 === code || i.sku === code
   )
+  // 再按 BOM 子件匹配（仓库的货可能还没组装成成品，扫子件凑套）
+  let comp = null
+  if (!item) {
+    for (const it of items.value) {
+      if (it.components && it.components.length) {
+        const c = it.components.find((c) => c.barcode === code || c.sku === code)
+        if (c) { item = it; comp = c; break }
+      }
+    }
+  }
   if (!item) {
     showToast(`❌ 此訂單無 ${code}`, 'error')
     skuInput.value = ''
@@ -125,7 +147,18 @@ async function scanSku() {
   }
 
   // 纯前端累加 — 不调 API，反应即时
-  item.scanned += 1
+  if (comp) {
+    // 扫子件 — 凑套：满 qtyPer 个 = 1 个母件
+    comp.scanned += 1
+    if (item.components.every((c) => c.scanned >= c.qtyPer)) {
+      item.scanned += 1
+      item.components.forEach((c) => { c.scanned -= c.qtyPer })  // 留零头（一般恰好归零）
+    }
+  } else {
+    // 扫母件 / 普通商品 — 直接 +1；BOM 母件直接扫满则清掉半套子件零头
+    item.scanned += 1
+    if (item.isBom) item.components.forEach((c) => { c.scanned = 0 })
+  }
   skuInput.value = ''
   skuInputEl.value?.focus()
 
@@ -427,25 +460,40 @@ function reset() {
               掃描運單號開始出庫核驗
             </td>
           </tr>
-          <tr v-for="it in items" :key="it.sku">
-            <td class="font-mono font-semibold">{{ it.sku }}</td>
-            <td>{{ it.name }}</td>
-            <td class="hidden lg:table-cell font-mono text-xs text-gray-500">{{ it.barcode }}</td>
-            <td class="hidden lg:table-cell font-mono text-xs text-gray-500">{{ it.barcode2 }}</td>
-            <td class="text-center font-semibold">{{ it.required }}</td>
-            <td class="text-center font-bold" :class="it.scanned >= it.required ? 'text-green-600' : 'text-amber-600'">
-              {{ it.scanned }}
-            </td>
-            <td class="text-center">
-              <button
-                class="g-btn g-btn-teal"
-                style="padding:4px 12px;font-size:12px;"
-                :disabled="it.scanned === 0"
-                :title="it.scanned === 0 ? '請先掃描此商品' : '列印標籤'"
-                @click="printLabelForItem(it)"
-              >🖨️</button>
-            </td>
-          </tr>
+          <template v-for="it in items" :key="it.sku">
+            <tr>
+              <td class="font-mono font-semibold">{{ it.sku }}</td>
+              <td>{{ it.name }}</td>
+              <td class="hidden lg:table-cell font-mono text-xs text-gray-500">{{ it.barcode }}</td>
+              <td class="hidden lg:table-cell font-mono text-xs text-gray-500">{{ it.barcode2 }}</td>
+              <td class="text-center font-semibold">{{ it.required }}</td>
+              <td class="text-center font-bold" :class="it.scanned >= it.required ? 'text-green-600' : 'text-amber-600'">
+                {{ it.scanned }}
+              </td>
+              <td class="text-center">
+                <button
+                  class="g-btn g-btn-teal"
+                  style="padding:4px 12px;font-size:12px;"
+                  :disabled="it.scanned === 0"
+                  :title="it.scanned === 0 ? '請先掃描此商品' : '列印標籤'"
+                  @click="printLabelForItem(it)"
+                >🖨️</button>
+              </td>
+            </tr>
+            <!-- BOM 子件：仓库未组装时拣货员可改扫子件（凑套）。灰色缩进区分 -->
+            <tr v-for="c in it.components" :key="it.sku + '-' + c.sku" class="bg-gray-50/60">
+              <td class="font-mono text-xs text-gray-400 pl-6">└ {{ c.sku }}</td>
+              <td class="text-sm text-gray-500">{{ c.name }}</td>
+              <td class="hidden lg:table-cell font-mono text-xs text-gray-400">{{ c.barcode }}</td>
+              <td class="hidden lg:table-cell"></td>
+              <td class="text-center text-xs text-gray-400">{{ c.requiredQty }}</td>
+              <td class="text-center text-xs"
+                  :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-500' : 'text-gray-400'">
+                {{ it.scanned * c.qtyPer + c.scanned }}
+              </td>
+              <td></td>
+            </tr>
+          </template>
           <tr v-if="pickingId" class="bg-gray-50 font-bold">
             <td :colspan="4" class="text-right hidden lg:table-cell">合計</td>
             <td colspan="2" class="text-right lg:hidden">合計</td>
@@ -487,6 +535,19 @@ function reset() {
               :class="it.scanned >= it.required ? 'bg-green-500' : 'bg-amber-500'"
               :style="{ width: Math.min(100, (it.scanned / it.required) * 100) + '%' }"
             ></div>
+          </div>
+          <!-- BOM 子件：未组装时可改扫子件凑套 -->
+          <div v-if="it.components && it.components.length" class="mt-2 space-y-1">
+            <div
+              v-for="c in it.components" :key="it.sku + '-' + c.sku"
+              class="flex items-center justify-between gap-2 text-xs text-gray-500 pl-2 border-l-2 border-gray-200"
+            >
+              <span class="truncate flex-1">└ {{ c.name }}</span>
+              <span class="font-mono flex-shrink-0"
+                    :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-500' : 'text-gray-400'">
+                {{ it.scanned * c.qtyPer + c.scanned }}/{{ c.requiredQty }}
+              </span>
+            </div>
           </div>
           <!-- 底部：barcode 折叠 + 列印按钮 -->
           <div class="mt-2 flex items-center justify-between gap-2 flex-wrap">
