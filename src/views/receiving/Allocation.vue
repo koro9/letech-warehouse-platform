@@ -560,7 +560,6 @@ async function saveData() {
         })),
         box_qty: parseInt(r.box_qty) || 0,
         remarks: (r.remarks || '').trim(),
-        board: (r.board || '').trim(),
         _last_modified_at: r.last_modified_at,
       }))
 
@@ -667,7 +666,6 @@ async function applyResolutions() {
           tpl: parseInt(cc.tpl) || 0,
         })),
         remarks: (row.remarks || '').trim(),
-        board: (row.board || '').trim(),
         _last_modified_at: row.last_modified_at,
       })
     }
@@ -1056,17 +1054,10 @@ onActivated(_autoLoadFromQuery)
                       style="border-color:#e5e7eb;"
                     />
                   </td>
-                  <td class="px-2.5 py-2">
-                    <!-- 板 可编辑 — 分配人员手填，M3a 点货员只读看到(显示在有效期下方) -->
-                    <input
-                      v-model="row.board"
-                      @input="markDirty(row)"
-                      type="text"
-                      maxlength="50"
-                      placeholder="—"
-                      class="w-full px-2 py-1 border rounded text-xs"
-                      style="border-color:#e5e7eb;"
-                    />
+                  <td class="px-2.5 py-2 text-xs" style="color:#92400e;">
+                    <!-- 板 只读 — 由 M3a 点货人填写,分货人只看(提醒货在哪) -->
+                    <span v-if="row.board" class="font-semibold">{{ row.board }}</span>
+                    <span v-else class="text-gray-300">—</span>
                   </td>
                   <td class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
                   <td class="px-2.5 py-2 font-mono text-[11px] font-bold">{{ row.sku }}</td>

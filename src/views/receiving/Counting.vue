@@ -484,10 +484,12 @@ function undoRemark() {
 function buildPayloadRow(sku) {
   const meta = lineMeta[sku]
   const data = pk[sku]
+  const item = (curPO.value?.items || []).find(i => i.sku === sku)
   return {
     po_line_id:        meta.po_line_id,
     counting:          { dates: data.dates.slice(), a: data.a },
     remarks_handled:   remarksStatus[sku] || { handled: false, by: '', time: '' },
+    board:             (item?.board || '').trim(),   // 點貨人填的「板」,提醒分貨
     _last_modified_at: meta.last_modified_at,
   }
 }
@@ -944,10 +946,21 @@ onActivated(_autoLoadFromQuery)
           <button class="g-btn g-btn-teal" style="padding:10px 18px;" @click="addDate">新增</button>
         </div>
       </div>
-      <!-- 板 — M3b 分配人员手填,点货员只读看到(显示在有效期下方) -->
-      <div v-if="curItem.board" class="date-section flex items-center gap-2">
-        <span class="text-xs font-bold text-gray-600">🧱 板</span>
-        <span class="text-sm font-bold" style="color:#5b21b6;">{{ curItem.board }}</span>
+    </div>
+
+    <!-- 板 — 點貨人填寫,提醒分貨人(分貨頁只讀看到) -->
+    <div class="card">
+      <div class="flex items-center gap-2 px-4 py-3" style="background:#FFFDE7;">
+        <span class="text-xs font-bold text-gray-600 shrink-0">🧱 板（提醒分貨）</span>
+        <input
+          type="text"
+          maxlength="50"
+          :value="curItem.board || ''"
+          placeholder="點貨填寫板/位置,分貨參考"
+          class="flex-1 py-1.5 px-2 rounded-lg text-sm outline-none"
+          style="border:1.5px solid #FBC02D;"
+          @input="curItem.board = $event.target.value; markDirty(curSKU)"
+        />
       </div>
     </div>
 
