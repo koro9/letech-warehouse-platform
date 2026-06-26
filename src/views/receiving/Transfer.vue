@@ -406,8 +406,8 @@ async function printPickListForTR(tr) {
 //   - 同時查 Label Master → 有食品/保健 label 一齊印
 //   - 兩種情況可疊加（repack 包裝盒要貼自己嘅條碼，仲要貼營養成份）
 //
-//   防重複：`scheduleAutoPrint` (debounce) 同 `@blur` 都會 call 呢個函數，
-//   所以用 _lastPrintedQty 記住每件 item 上次印嘅 qty，相同就 skip。
+//   防重複：輸入後按 Enter 會 call 呢個函數；同一 item 同一 qty 連按 Enter
+//   只印一次（用 _lastPrintedQty 記住）。重印按鈕會先清呢個記錄再強制重印。
 const _lastPrintedQty = new Map()
 async function onPickQtyBlur(item) {
   const qty = parseInt(item.pickQty) || 0
@@ -442,19 +442,15 @@ async function onPickQtyBlur(item) {
   }
 }
 
-// Debounce 自動列印：員工打數時等 800ms 無新 keystroke 先 trigger
-const _autoPrintTimers = new Map()
-function scheduleAutoPrint(item) {
-  const key = item.po_line_id || item.sku || item.barcode
-  if (_autoPrintTimers.has(key)) clearTimeout(_autoPrintTimers.get(key))
-  _autoPrintTimers.set(key, setTimeout(() => {
-    _autoPrintTimers.delete(key)
-    onPickQtyBlur(item)
-  }, 800))
-}
+// 自動列印改為「輸入揀貨數量後按 Enter」觸發（見模板 @keydown.enter），
+// 不再 debounce 邊打邊印、亦不再 @blur 失焦印 —— 避免過早/誤觸發。
 
-// Manual reprint button — same logic as auto-print
+// Manual reprint button — 強制重印：先清掉去重記錄，否則 onPickQtyBlur
+// 會因為「呢個 qty 已印過」而 early-return，導致重印按鈕點極都冇反應。
 async function reprintItemLabels(item) {
+  const barcode = item.barcode || ''
+  const printKey = `${item.po_line_id || ''}|${item.sku || ''}|${barcode}`
+  _lastPrintedQty.delete(printKey)
   await onPickQtyBlur(item)
 }
 
@@ -1731,8 +1727,8 @@ onBeforeUnmount(() => {
                 : (parseInt(item.pickQty)||0) >= (parseInt(item.reqQty)||0) && (parseInt(item.reqQty)||0) > 0 ? 'border-emerald-300 bg-emerald-50 text-emerald-600'
                 : 'border-slate-200 bg-white text-slate-800'"
               :disabled="isItemLocked(item)"
-              @input="updItem(item, 'pickQty', $event.target.value); scheduleAutoPrint(item)"
-              @blur="onPickQtyBlur(item)"
+              @input="updItem(item, 'pickQty', $event.target.value)"
+              @keydown.enter="onPickQtyBlur(item)"
             />
           </div>
           <div class="flex-1">
