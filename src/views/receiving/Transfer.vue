@@ -1014,7 +1014,7 @@ function onScanDetected(code) {
 // ============================================================
 // 导出 — stub（沿用 demo 行为，等业务确认要不要做）
 // ============================================================
-// 匯出單張 TR → Excel(6 列:SKU / Barcode / 中文名 / 英文名 / 入倉數量 / 箱數量)
+// 匯出單張 TR → Excel(5 列:SKU / Barcode / 中文名 / 入倉數量 / 箱數量)
 async function exportTR() {
   const tr = activeTransfer.value
   if (!tr?.id) { showToast('沒有可匯出的 TR', 'warning'); return }
@@ -1022,10 +1022,10 @@ async function exportTR() {
     const res = await poApi.exportTransferData(tr.id)
     const lines = res.lines || []
     if (!lines.length) { showToast('此 TR 沒有明細可匯出', 'warning'); return }
-    const header = ['SKU', 'Barcode', '產品名稱(中文)', '產品名稱(英文)', '入倉數量', '箱數量']
-    const rows = lines.map(l => [l.sku, l.barcode, l.name_cn, l.name_en, l.qty, l.boxes])
+    const header = ['SKU', 'Barcode', '產品名稱(中文)', '入倉數量', '箱數量']
+    const rows = lines.map(l => [l.sku, l.barcode, l.name_cn, l.qty, l.boxes])
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
-    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 30 }, { wch: 30 }, { wch: 10 }, { wch: 8 }]
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 30 }, { wch: 10 }, { wch: 8 }]
     const wb = XLSX.utils.book_new()
     const sheetName = (tr.name || 'TR').replace(/[\\/?*[\]:]/g, '').slice(0, 31)
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
