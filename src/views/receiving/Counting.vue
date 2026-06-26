@@ -951,7 +951,7 @@ onActivated(_autoLoadFromQuery)
     <!-- 板 — 點貨人填寫,提醒分貨人(分貨頁只讀看到) -->
     <div class="card">
       <div class="flex items-center gap-2 px-4 py-3" style="background:#FFFDE7;">
-        <span class="text-xs font-bold text-gray-600 shrink-0">🧱 板（提醒分貨）</span>
+        <span class="text-xs font-bold text-gray-600 shrink-0">🧱 板（SD4歸位）</span>
         <input
           type="text"
           maxlength="50"
