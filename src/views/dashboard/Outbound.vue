@@ -472,8 +472,8 @@ onDeactivated(() => {
             <tr>
               <td class="font-mono font-semibold">{{ it.sku }}</td>
               <td>{{ it.name }}</td>
-              <td class="hidden lg:table-cell font-mono text-xs text-gray-500">{{ it.barcode }}</td>
-              <td class="hidden lg:table-cell font-mono text-xs text-gray-500">{{ it.barcode2 }}</td>
+              <td class="hidden lg:table-cell font-mono text-base font-semibold text-gray-700">{{ it.barcode }}</td>
+              <td class="hidden lg:table-cell font-mono text-sm text-gray-500">{{ it.barcode2 }}</td>
               <td class="text-center font-semibold">{{ it.required }}</td>
               <td class="text-center font-bold" :class="it.scanned >= it.required ? 'text-green-600' : 'text-amber-600'">
                 {{ it.scanned }}
@@ -493,7 +493,7 @@ onDeactivated(() => {
             <tr v-for="c in it.components" :key="it.sku + '-' + c.sku" class="bg-amber-100/80 border-l-4 border-amber-400">
               <td class="font-mono text-xs text-amber-800 pl-6">└ {{ c.sku }}</td>
               <td class="text-sm text-amber-900">{{ c.name }}</td>
-              <td class="hidden lg:table-cell font-mono text-xs text-amber-700">{{ c.barcode }}</td>
+              <td class="hidden lg:table-cell font-mono text-sm font-semibold text-amber-700">{{ c.barcode }}</td>
               <td class="hidden lg:table-cell"></td>
               <td class="text-center text-xs text-amber-700">{{ c.requiredQty }}</td>
               <td class="text-center text-xs font-semibold"
