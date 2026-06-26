@@ -19,7 +19,7 @@
  *   - 平板：输入栏 wrap，表格部分列保留
  *   - 手机：输入框纵向堆叠 + 卡片视图（每个 SKU 一张卡，进度条 + 数字）
  */
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, onDeactivated } from 'vue'
 import { outbound, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
@@ -377,6 +377,12 @@ function reset() {
   pickingId.value = null
   labelCache.clear()
 }
+
+// KeepAlive：离开出庫页（切到其他菜单）即自动重置，
+// 回来时是干净空白页，不残留上一手没扫完的订单/进度。
+onDeactivated(() => {
+  reset()
+})
 </script>
 
 <template>
@@ -393,6 +399,8 @@ function reset() {
         style="height: 46px;"
         placeholder="掃描運單號"
         autocomplete="off"
+        :disabled="!!pickingId"
+        :title="pickingId ? '已載入訂單，按「重置」才能掃下一單' : ''"
       />
       <input
         ref="skuInputEl"
