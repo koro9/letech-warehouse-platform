@@ -246,6 +246,15 @@ export function getTransfer(trId) {
 }
 
 /**
+ * 拿 TR 的匯出明細(前端用 SheetJS 生成 Excel)。
+ * 後端契約：GET /api/warehouse/transfer/<tr_id>/export
+ *   200 → { tr_name, po_name, lines: [{ sku, barcode, name_cn, name_en, qty, boxes }] }
+ */
+export function exportTransferData(trId) {
+  return http.get(`/warehouse/transfer/${trId}/export`)
+}
+
+/**
  * 保存 TR 揀貨录入（TR 级乐观锁）。
  *
  * 后端契约：POST /api/warehouse/transfer/<tr_id>

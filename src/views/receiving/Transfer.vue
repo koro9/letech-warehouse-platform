@@ -28,6 +28,7 @@ import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
 import { printLabels, printPickList, printRepackLabels } from '@/utils/labelRenderers'
 import { printToBartender } from '@/utils/bartenderPrint'
+import * as XLSX from 'xlsx'
 // 按需異步加載:zxing 解碼庫(~113KB gzip)只在真正打開相機時才下載
 const BarcodeScanner = defineAsyncComponent(() => import('@/components/BarcodeScanner.vue'))
 
@@ -1013,8 +1014,29 @@ function onScanDetected(code) {
 // ============================================================
 // 导出 — stub（沿用 demo 行为，等业务确认要不要做）
 // ============================================================
-function exportTR() {
-  showToast('✓ 匯出功能待實作', 'info')
+// 匯出單張 TR → Excel(6 列:SKU / Barcode / 中文名 / 英文名 / 入倉數量 / 箱數量)
+async function exportTR() {
+  const tr = activeTransfer.value
+  if (!tr?.id) { showToast('沒有可匯出的 TR', 'warning'); return }
+  try {
+    const res = await poApi.exportTransferData(tr.id)
+    const lines = res.lines || []
+    if (!lines.length) { showToast('此 TR 沒有明細可匯出', 'warning'); return }
+    const header = ['SKU', 'Barcode', '產品名稱(中文)', '產品名稱(英文)', '入倉數量', '箱數量']
+    const rows = lines.map(l => [l.sku, l.barcode, l.name_cn, l.name_en, l.qty, l.boxes])
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 30 }, { wch: 30 }, { wch: 10 }, { wch: 8 }]
+    const wb = XLSX.utils.book_new()
+    const sheetName = (tr.name || 'TR').replace(/[\\/?*[\]:]/g, '').slice(0, 31)
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    const fname = `${res.po_name ? res.po_name + '_' : ''}${res.tr_name || tr.name || 'TR'}.xlsx`
+    XLSX.writeFile(wb, fname)
+    showToast('✓ 已匯出 Excel', 'success')
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      showToast(err.response?.data?.error || '匯出失敗', 'error')
+    }
+  }
 }
 function exportAllTR() {
   showToast('✓ 匯出功能待實作', 'info')
