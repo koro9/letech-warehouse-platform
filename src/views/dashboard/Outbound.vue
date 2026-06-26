@@ -488,15 +488,16 @@ onDeactivated(() => {
                 >🖨️</button>
               </td>
             </tr>
-            <!-- BOM 子件：仓库未组装时拣货员可改扫子件（凑套）。灰色缩进区分 -->
-            <tr v-for="c in it.components" :key="it.sku + '-' + c.sku" class="bg-gray-50/60">
-              <td class="font-mono text-xs text-gray-400 pl-6">└ {{ c.sku }}</td>
-              <td class="text-sm text-gray-500">{{ c.name }}</td>
-              <td class="hidden lg:table-cell font-mono text-xs text-gray-400">{{ c.barcode }}</td>
+            <!-- BOM 子件：仓库未组装时拣货员可改扫子件（凑套）。
+                 整行加深琥珀色 + 左侧色条，让母子单一眼可辨 -->
+            <tr v-for="c in it.components" :key="it.sku + '-' + c.sku" class="bg-amber-100/80 border-l-4 border-amber-400">
+              <td class="font-mono text-xs text-amber-800 pl-6">└ {{ c.sku }}</td>
+              <td class="text-sm text-amber-900">{{ c.name }}</td>
+              <td class="hidden lg:table-cell font-mono text-xs text-amber-700">{{ c.barcode }}</td>
               <td class="hidden lg:table-cell"></td>
-              <td class="text-center text-xs text-gray-400">{{ c.requiredQty }}</td>
-              <td class="text-center text-xs"
-                  :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-500' : 'text-gray-400'">
+              <td class="text-center text-xs text-amber-700">{{ c.requiredQty }}</td>
+              <td class="text-center text-xs font-semibold"
+                  :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-600' : 'text-amber-700'">
                 {{ it.scanned * c.qtyPer + c.scanned }}
               </td>
               <td></td>
@@ -544,15 +545,15 @@ onDeactivated(() => {
               :style="{ width: Math.min(100, (it.scanned / it.required) * 100) + '%' }"
             ></div>
           </div>
-          <!-- BOM 子件：未组装时可改扫子件凑套 -->
+          <!-- BOM 子件：未组装时可改扫子件凑套 — 加深琥珀色高亮，母子单一眼可辨 -->
           <div v-if="it.components && it.components.length" class="mt-2 space-y-1">
             <div
               v-for="c in it.components" :key="it.sku + '-' + c.sku"
-              class="flex items-center justify-between gap-2 text-xs text-gray-500 pl-2 border-l-2 border-gray-200"
+              class="flex items-center justify-between gap-2 text-xs text-amber-900 px-2 py-1 rounded border-l-4 border-amber-400 bg-amber-100/80"
             >
               <span class="truncate flex-1">└ {{ c.name }}</span>
-              <span class="font-mono flex-shrink-0"
-                    :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-500' : 'text-gray-400'">
+              <span class="font-mono flex-shrink-0 font-semibold"
+                    :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-600' : 'text-amber-700'">
                 {{ it.scanned * c.qtyPer + c.scanned }}/{{ c.requiredQty }}
               </span>
             </div>
