@@ -313,7 +313,7 @@ async function enterPO() {
         extra:  Array.isArray(r.extra) && r.extra.length >= 2
                   ? r.extra
                   : [{ qty: 0 }, { qty: 0 }],
-        combos: Array.isArray(r.combos) ? r.combos : [],
+        combos: enrichCombos(r.combos, r.combo_options),
       })),
     )
     const ec = res.extra_cols || []
@@ -533,6 +533,18 @@ function comboHas(ri, sku) {
   return rows[ri].combos.some(c => c.sku === sku)
 }
 
+// combo 保存时后端只存 sku/suffix/multiplier/tpl（不含 name/label）——
+// 加载回来后按 sku 从该行的 combo_options（mrp.bom 反查，含 name/label）补全显示名，
+// 否则子行 Name 列空白。name 始终以 BOM 为准，比持久化更可靠。
+function enrichCombos(combos, comboOptions) {
+  const opts = comboOptions || []
+  return (Array.isArray(combos) ? combos : []).map((cb) => {
+    if (cb.name) return cb
+    const o = opts.find((x) => x.sku === cb.sku)
+    return o ? { ...cb, name: o.name, label: cb.label || o.label, suffix: cb.suffix ?? o.suffix } : cb
+  })
+}
+
 // ============================================================
 // 保存（增量 + 行级乐观锁）
 // ============================================================
@@ -646,7 +658,7 @@ async function applyResolutions() {
         extra:  Array.isArray(c.server_data.extra) && c.server_data.extra.length >= 2
                   ? c.server_data.extra
                   : [{ qty: 0 }, { qty: 0}],
-        combos: Array.isArray(c.server_data.combos) ? c.server_data.combos : [],
+        combos: enrichCombos(c.server_data.combos, row.combo_options),
         remarks: c.server_remarks || '',
         board: c.server_board || '',
         last_modified_at: c.modified_at,
@@ -1124,8 +1136,10 @@ onActivated(_autoLoadFromQuery)
                   </td>
                 </tr>
 
-                <!-- combo 子行 -->
+                <!-- combo 子行 — 前导 7 个占位格对应 總數/現點/箱入/總箱數/Remarks/板/Barcode，
+                     之后 SKU 列才与主行 SKU 对齐；少一个会整行左移（SKU 落到 Barcode 列） -->
                 <tr v-for="(c, ci) in row.combos" :key="c.sku" class="border-b border-gray-50" style="background:linear-gradient(90deg,#eff6ff,transparent);">
+                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
