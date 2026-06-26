@@ -73,6 +73,7 @@ const DEFAULT_COL_WIDTHS = {
   barcode: 120,  // Barcode
   sku: 110,      // SKU
   name: 280,     // Name（默认宽一点）
+  dates: 110,    // 有效期（點貨錄入，只讀）
   tpl: 70,       // 3PL
   ws: 70,        // WS
   sd4: 70,       // SD4
@@ -314,6 +315,7 @@ async function enterPO() {
                   ? r.extra
                   : [{ qty: 0 }, { qty: 0 }],
         combos: enrichCombos(r.combos, r.combo_options),
+        dates:  Array.isArray(r.dates) ? r.dates : [],
       })),
     )
     const ec = res.extra_cols || []
@@ -545,6 +547,15 @@ function enrichCombos(combos, comboOptions) {
   })
 }
 
+// 有效期 — 點貨錄入的 8 位字符串（YYYYMMDD），分配頁只讀顯示
+function fmtDate(s) {
+  s = String(s || '')
+  return s.length === 8 ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s
+}
+function fmtDates(arr) {
+  return (Array.isArray(arr) ? arr : []).map(fmtDate).join(', ')
+}
+
 // ============================================================
 // 保存（增量 + 行级乐观锁）
 // ============================================================
@@ -746,7 +757,7 @@ function exportExcel() {
   // 表头
   const header = [
     '總數', '現點', '箱入', '總箱數',
-    'Remarks', '板', 'Barcode', 'SKU', 'Name',
+    'Remarks', '板', 'Barcode', 'SKU', 'Name', '有效期',
     '3PL', 'WS', 'SD4',
     ...extraColNames,
   ]
@@ -765,6 +776,7 @@ function exportExcel() {
       r.barcode || '',
       r.sku || '',
       r.name || '',
+      fmtDates(r.dates),
       parseInt(r.tpl) || 0,
       parseInt(r.ws) || 0,
       calcSD4(r),
@@ -777,6 +789,7 @@ function exportExcel() {
         '', '', '',                          // Remarks/板/Barcode 空
         `↳ ${c.sku}`,                        // SKU 缩进
         `${c.name || ''} ${c.label || ''}`.trim(),
+        '',                                  // 有效期 空
         parseInt(c.tpl) || 0,                // 3PL
         '', '',                              // WS / SD4 空
         ...extraColIdxs.map(() => ''),
@@ -789,7 +802,7 @@ function exportExcel() {
   const footerRow = [
     fs.tQ, fs.tCo,
     '', '', '', '', '',
-    '合計', '',
+    '合計', '', '',
     fs.tT, fs.tW, fs.tS,
     ...extraColIdxs.map(i => fs.tE[i] || 0),
   ]
@@ -819,6 +832,7 @@ function exportExcel() {
     { wch: 16 },  // Barcode
     { wch: 14 },  // SKU
     { wch: 32 },  // Name
+    { wch: 14 },  // 有效期
     { wch: 8 },   // 3PL
     { wch: 8 },   // WS
     { wch: 8 },   // SD4
@@ -997,6 +1011,7 @@ onActivated(_autoLoadFromQuery)
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.barcode + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.sku + 'px' }">SKU<span class="col-resize-handle" @mousedown="startColResize('sku', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.name + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.dates + 'px' }">有效期<span class="col-resize-handle" @mousedown="startColResize('dates', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.ws + 'px' }" style="color:#065f46;background:#ecfdf5;">WS<span class="col-resize-handle" @mousedown="startColResize('ws', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.sd4 + 'px' }" style="color:#5b21b6;background:#f5f3ff;">SD4<span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></th>
@@ -1074,6 +1089,11 @@ onActivated(_autoLoadFromQuery)
                   <td class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
                   <td class="px-2.5 py-2 font-mono text-[11px] font-bold">{{ row.sku }}</td>
                   <td class="px-2.5 py-2 text-xs truncate" :title="row.name">{{ row.name }}</td>
+                  <!-- 有效期 — 點貨錄入，分配只讀 -->
+                  <td class="px-2.5 py-2 text-[11px]" :class="(row.dates && row.dates.length) ? 'text-gray-600' : 'text-gray-300'" :title="fmtDates(row.dates)">
+                    <span v-if="row.dates && row.dates.length">{{ fmtDates(row.dates) }}</span>
+                    <span v-else>—</span>
+                  </td>
 
                   <!-- 3PL -->
                   <td class="px-1.5 py-2 text-center" style="background:rgba(239,246,255,.4);">
@@ -1151,6 +1171,7 @@ onActivated(_autoLoadFromQuery)
                     <span class="font-mono text-[11px] font-bold ml-1" style="color:#2563eb;">{{ c.sku }}</span>
                   </td>
                   <td class="px-2.5 py-1.5 text-[11px] text-gray-500">{{ c.name }} {{ c.label }}</td>
+                  <td class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
                   <td class="px-1.5 py-1.5 text-center" style="background:rgba(239,246,255,.4);">
                     <input
                       v-model="c.tpl"
@@ -1190,9 +1211,11 @@ onActivated(_autoLoadFromQuery)
                 <td class="px-2.5 py-2 text-center" style="background:#f0fdfa;">
                   <span class="font-bold" :class="footerStats.tCo === footerStats.tQ ? 'text-gray-800' : 'text-red-600'">{{ footerStats.tCo }}</span>
                 </td>
-                <td></td><td></td><td></td><td></td>
-                <td class="px-2.5 py-2">合計</td>
-                <td></td>
+                <td></td><td></td><td></td><td></td><!-- 箱入/總箱數/Remarks/板 -->
+                <td></td><!-- Barcode -->
+                <td class="px-2.5 py-2">合計</td><!-- SKU -->
+                <td></td><!-- Name -->
+                <td></td><!-- 有效期 -->
                 <td class="px-2.5 py-2 text-center" style="color:#1d4ed8;background:#eff6ff;">{{ footerStats.tT }}</td>
                 <td class="px-2.5 py-2 text-center" style="color:#065f46;background:#ecfdf5;">{{ footerStats.tW }}</td>
                 <td class="px-2.5 py-2 text-center" style="background:#f5f3ff;">
