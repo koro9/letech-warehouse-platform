@@ -219,8 +219,10 @@ function renderFoodLabel(d) {
     ingredientText = `${ingredientText}${sep}Allergen specified ingredients: ${allergenText}`
   }
 
-  // 营养表 10 行（label, 字段值）— 跟旧 generate_food_label 严格对齐
+  // 营养表（label, 字段值）— 跟旧 generate_food_label 严格对齐
+  // Servings Per Package 在 Serving Size 上面(y=37),旧逻辑有这行
   const rows = [
+    ['Servings Per Package:', d.servings_per_package, 37],
     ['Serving Size:',     d.serving_size,  35],
     ['Energy:',           d.energy,        33],
     ['Protein:',          d.protein,       31],
