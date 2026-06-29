@@ -490,10 +490,10 @@ async function confirmSplit() {
     <div
       v-if="splitModalOpen"
       class="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style="background:rgba(15,23,42,0.55);"
-      @click.self="closeSplit"
     >
-      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
+      <!-- 遮罩：点击关闭（显式 backdrop，比 @click.self 可靠） -->
+      <div class="absolute inset-0" style="background:rgba(15,23,42,0.55);" @click="closeSplit"></div>
+      <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
         <!-- 头 -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
