@@ -917,6 +917,19 @@ onActivated(_autoLoadFromQuery)
       </div>
     </div>
 
+    <!-- 產品主圖（移到商品名稱下方）；手機端自適應：撑满列宽、限高、保持比例 -->
+    <div v-if="curItem.main_photo" class="card" style="padding:12px;">
+      <div class="text-[11px] text-gray-400 mb-2">🖼️ 產品主圖</div>
+      <img
+        :src="curItem.main_photo"
+        :alt="curItem.name"
+        class="w-full rounded-lg object-contain bg-gray-50"
+        style="max-height:300px;"
+        loading="lazy"
+        @error="$event.target.closest('.card').style.display='none'"
+      />
+    </div>
+
     <!-- 日期 chips -->
     <div class="card">
       <div class="date-section" style="border-top:none;">
@@ -945,22 +958,6 @@ onActivated(_autoLoadFromQuery)
           />
           <button class="g-btn g-btn-teal" style="padding:10px 18px;" @click="addDate">新增</button>
         </div>
-      </div>
-    </div>
-
-    <!-- 板 — 點貨人填寫,提醒分貨人(分貨頁只讀看到) -->
-    <div class="card">
-      <div class="flex items-center gap-2 px-4 py-3" style="background:#FFFDE7;">
-        <span class="text-xs font-bold text-gray-600 shrink-0">🧱 板（SD4歸位）</span>
-        <input
-          type="text"
-          maxlength="50"
-          :value="curItem.board || ''"
-          placeholder="點貨填寫板/位置,分貨參考"
-          class="flex-1 py-1.5 px-2 rounded-lg text-sm outline-none"
-          style="border:1.5px solid #FBC02D;"
-          @input="curItem.board = $event.target.value; markDirty(curSKU)"
-        />
       </div>
     </div>
 
@@ -1101,17 +1098,20 @@ onActivated(_autoLoadFromQuery)
       </template>
     </div>
 
-    <!-- 產品主圖（基本信息 le_main_photo，公網 URL）；手機端自適應：撑满列宽、限高、保持比例 -->
-    <div v-if="curItem.main_photo" class="card" style="padding:12px;">
-      <div class="text-[11px] text-gray-400 mb-2">🖼️ 產品主圖</div>
-      <img
-        :src="curItem.main_photo"
-        :alt="curItem.name"
-        class="w-full rounded-lg object-contain bg-gray-50"
-        style="max-height:300px;"
-        loading="lazy"
-        @error="$event.target.closest('.card').style.display='none'"
-      />
+    <!-- 板 — 點貨人填寫(移到填數後),提醒分貨人(分貨頁只讀看到) -->
+    <div class="card">
+      <div class="flex items-center gap-2 px-4 py-3" style="background:#FFFDE7;">
+        <span class="text-xs font-bold text-gray-600 shrink-0">🧱 板（SD4歸位）</span>
+        <input
+          type="text"
+          maxlength="50"
+          :value="curItem.board || ''"
+          placeholder="點貨填寫板/位置,分貨參考"
+          class="flex-1 py-1.5 px-2 rounded-lg text-sm outline-none"
+          style="border:1.5px solid #FBC02D;"
+          @input="curItem.board = $event.target.value; markDirty(curSKU)"
+        />
+      </div>
     </div>
 
     <div class="h-18"></div>
