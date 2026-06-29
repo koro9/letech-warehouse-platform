@@ -48,6 +48,15 @@ const filterExpiry = ref('all')
 const filter3pl = ref('all')   // all / has(>0) / none(=0)
 const filterWs = ref('all')
 const filterSd4 = ref('all')
+// 额外仓位列(动态后加的)各自的筛选：{ [colIndex]: 'all'|'has'|'none' }
+const filterExtra = reactive({})
+function extraFilterVal(idx) { return filterExtra[idx] || 'all' }
+function setExtraFilter(idx, mode) { filterExtra[idx] = mode }
+const anyFilterActive = computed(() =>
+  filterCount.value !== 'all' || filterExpiry.value !== 'all'
+  || filter3pl.value !== 'all' || filterWs.value !== 'all' || filterSd4.value !== 'all'
+  || Object.values(filterExtra).some(v => v && v !== 'all'),
+)
 const loading = ref(false)
 const saving = ref(false)
 
@@ -237,6 +246,10 @@ const filteredRows = computed(() => {
     if (!whPass(filter3pl.value, parseInt(r.tpl) || 0)) return false
     if (!whPass(filterWs.value, parseInt(r.ws) || 0)) return false
     if (!whPass(filterSd4.value, calcSD4(r) || 0)) return false
+    // 动态额外仓位列
+    for (const c of activeExtraCols.value) {
+      if (!whPass(extraFilterVal(c.index), parseInt(r.extra?.[c.index]?.qty) || 0)) return false
+    }
     return true
   })
 })
@@ -252,6 +265,8 @@ function whPass(mode, v) {
 const filterCounts = computed(() => {
   let uncounted = 0, under = 0, matched = 0, over = 0, noDate = 0, hasDate = 0
   let tplHas = 0, wsHas = 0, sd4Has = 0
+  const extraHas = {}
+  for (const c of activeExtraCols.value) extraHas[c.index] = 0
   for (const r of rows) {
     const m = isMismatch(r)
     if (m === 'not_counted') uncounted++
@@ -262,6 +277,9 @@ const filterCounts = computed(() => {
     if ((parseInt(r.tpl) || 0) > 0) tplHas++
     if ((parseInt(r.ws) || 0) > 0) wsHas++
     if ((calcSD4(r) || 0) > 0) sd4Has++
+    for (const c of activeExtraCols.value) {
+      if ((parseInt(r.extra?.[c.index]?.qty) || 0) > 0) extraHas[c.index]++
+    }
   }
   const n = rows.length
   return {
@@ -269,6 +287,7 @@ const filterCounts = computed(() => {
     tplHas, tplNone: n - tplHas,
     wsHas, wsNone: n - wsHas,
     sd4Has, sd4None: n - sd4Has,
+    extraHas,
   }
 })
 
@@ -1092,7 +1111,14 @@ onActivated(_autoLoadFromQuery)
         <button :class="chipCls(filterSd4==='has')" @click="filterSd4='has'">有 {{ filterCounts.sd4Has }}</button>
         <button :class="chipCls(filterSd4==='none')" @click="filterSd4='none'">無 {{ filterCounts.sd4None }}</button>
       </div>
-      <span v-if="filterCount!=='all' || filterExpiry!=='all' || filter3pl!=='all' || filterWs!=='all' || filterSd4!=='all'" class="text-gray-500">顯示 {{ filteredRows.length }} 行</span>
+      <!-- 动态额外仓位列：加了哪列就自动出哪列的筛选 -->
+      <div v-for="c in activeExtraCols" :key="'f' + c.index" class="flex items-center gap-1.5">
+        <span class="font-semibold" style="color:#92400e;">{{ c.name || '額外倉' }}</span>
+        <button :class="chipCls(extraFilterVal(c.index)==='all')" @click="setExtraFilter(c.index,'all')">全部</button>
+        <button :class="chipCls(extraFilterVal(c.index)==='has')" @click="setExtraFilter(c.index,'has')">有 {{ filterCounts.extraHas[c.index] || 0 }}</button>
+        <button :class="chipCls(extraFilterVal(c.index)==='none')" @click="setExtraFilter(c.index,'none')">無 {{ filterCounts.total - (filterCounts.extraHas[c.index] || 0) }}</button>
+      </div>
+      <span v-if="anyFilterActive" class="text-gray-500">顯示 {{ filteredRows.length }} 行</span>
     </div>
 
     <!-- 表格 -->
