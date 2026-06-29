@@ -238,9 +238,14 @@ function renderFoodLabel(d) {
 
   let nutritionRows = ''
   for (const [label, val, y] of rows) {
+    // 单行 flex 容器（固定宽 20.5mm = 左2mm→右22.5mm，与原坐标一致）：
+    // 标签左、值右 space-between；加 .label-fit，标签或值过长时自动缩字号，
+    // 杜绝两者横向重叠（如 Servings Per Package / Net Content 长值）。
     nutritionRows += `
-      <div style="position:absolute; bottom:${y}mm; left:2mm; font-size:${DEFAULT_FZ};">${esc(label)}</div>
-      <div style="position:absolute; bottom:${y}mm; right:${LABEL_W - 22.5}mm; font-size:${DEFAULT_FZ}; text-align:right;">${esc(val ?? '')}</div>
+      <div class="label-fit" style="position:absolute; bottom:${y}mm; left:2mm; width:20.5mm; overflow:hidden; white-space:nowrap; display:flex; justify-content:space-between; gap:0.8mm; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH};">
+        <span style="flex:0 0 auto;">${esc(label)}</span>
+        <span style="flex:0 0 auto;">${esc(val ?? '')}</span>
+      </div>
     `
   }
 
