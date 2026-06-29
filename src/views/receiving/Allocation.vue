@@ -209,8 +209,8 @@ const activeExtraCols = computed(() =>
 )
 const canAddCol = computed(() => extraCols.some(c => !c.active))
 
-// 行级判定：未點(現點 null) / 無到期日(dates 空)
-function isUncounted(r) { return r.counted == null }
+// 行级判定：無到期日(dates 空)；點貨狀態用下面的 isMismatch()
+//   isMismatch: 'not_counted'(未點) | 'under'(點不足/點一半) | 'over'(超點) | false(已點齊)
 function hasNoDate(r) { return !(r.dates && r.dates.length) }
 
 const filteredRows = computed(() => {
@@ -221,8 +221,13 @@ const filteredRows = computed(() => {
       || (r.barcode || '').toLowerCase().includes(q)
       || (r.name || '').toLowerCase().includes(q)
     )) return false
-    if (filterCount.value === 'uncounted' && !isUncounted(r)) return false
-    if (filterCount.value === 'counted' && isUncounted(r)) return false
+    if (filterCount.value !== 'all') {
+      const m = isMismatch(r)
+      if (filterCount.value === 'uncounted' && m !== 'not_counted') return false
+      if (filterCount.value === 'under' && m !== 'under') return false
+      if (filterCount.value === 'matched' && m !== false) return false
+      if (filterCount.value === 'over' && m !== 'over') return false
+    }
     if (filterExpiry.value === 'no_date' && !hasNoDate(r)) return false
     if (filterExpiry.value === 'has_date' && hasNoDate(r)) return false
     return true
@@ -231,12 +236,16 @@ const filteredRows = computed(() => {
 
 // chip 上显示的数量（基于全部 rows，不受当前筛选影响）
 const filterCounts = computed(() => {
-  let uncounted = 0, counted = 0, noDate = 0, hasDate = 0
+  let uncounted = 0, under = 0, matched = 0, over = 0, noDate = 0, hasDate = 0
   for (const r of rows) {
-    if (isUncounted(r)) uncounted++; else counted++
+    const m = isMismatch(r)
+    if (m === 'not_counted') uncounted++
+    else if (m === 'under') under++
+    else if (m === 'over') over++
+    else matched++
     if (hasNoDate(r)) noDate++; else hasDate++
   }
-  return { total: rows.length, uncounted, counted, noDate, hasDate }
+  return { total: rows.length, uncounted, under, matched, over, noDate, hasDate }
 })
 
 function calcSD4(r) {
@@ -1031,7 +1040,9 @@ onActivated(_autoLoadFromQuery)
         <span class="text-gray-400 font-semibold">點貨</span>
         <button :class="chipCls(filterCount==='all')" @click="filterCount='all'">全部 {{ filterCounts.total }}</button>
         <button :class="chipCls(filterCount==='uncounted')" @click="filterCount='uncounted'">未點貨 {{ filterCounts.uncounted }}</button>
-        <button :class="chipCls(filterCount==='counted')" @click="filterCount='counted'">已點貨 {{ filterCounts.counted }}</button>
+        <button :class="chipCls(filterCount==='under')" @click="filterCount='under'">點不足 {{ filterCounts.under }}</button>
+        <button :class="chipCls(filterCount==='matched')" @click="filterCount='matched'">已點齊 {{ filterCounts.matched }}</button>
+        <button v-if="filterCounts.over > 0" :class="chipCls(filterCount==='over')" @click="filterCount='over'">超點 {{ filterCounts.over }}</button>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="text-gray-400 font-semibold">有效期</span>
