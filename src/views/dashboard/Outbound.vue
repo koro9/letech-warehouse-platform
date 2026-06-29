@@ -85,8 +85,7 @@ async function loadOrder() {
         scanned: 0,   // 当前凑套已扫数（满 qtyPer → 母件 +1 并归零）
       })),
     }))
-    await nextTick()
-    skuInputEl.value?.focus()
+    focusSku()
   } catch (err) {
     if (!err.handledByInterceptor) {
       showToast(err.response?.data?.error || '訂單不存在或不可出庫', 'error')
@@ -111,6 +110,15 @@ const { refreshNow } = usePageRefresh(refreshOrder)
 // ============================================================
 // 扫商品条码 — 纯前端累加（方案 B）
 // ============================================================
+// 把焦点拉回扫码框，方便连续扫货。打印(iframe/对话框)会抢焦点，
+// 所以 nextTick 即时聚焦后，再延时补两次，扛住打印之后的焦点丢失。
+function focusSku() {
+  const f = () => { if (pickingId.value) skuInputEl.value?.focus() }
+  nextTick(f)
+  setTimeout(f, 200)
+  setTimeout(f, 500)
+}
+
 async function scanSku() {
   const code = skuInput.value.trim()
   if (!code || !pickingId.value) return
@@ -167,8 +175,9 @@ async function scanSku() {
 
   // toggle 开启 → 自动列印（iframe 方案不受 popup 拦截，可异步触发）
   if (printAfterScan.value) {
-    autoPrintLabelForItem(item)
+    await autoPrintLabelForItem(item)
   }
+  focusSku()   // 打印后焦点会被抢走 → 拉回扫码框，方便连续扫
 
   // 扫满整单 → 自动 validate（force=false 严格扫满）
   if (totalScanned.value === totalRequired.value && totalRequired.value > 0) {
@@ -272,6 +281,7 @@ async function printLabelForItem(item) {
   } else {
     showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
   }
+  focusSku()   // 手动打印后也把焦点拉回扫码框
 }
 
 // ============================================================
