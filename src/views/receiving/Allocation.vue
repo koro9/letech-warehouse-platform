@@ -42,9 +42,12 @@ const partnerName = ref('')
 const datePlanned = ref('')
 const poState = ref('')
 const search = ref('')
-// 筛选：點貨狀態（all/uncounted/counted）+ 有效期（all/no_date/has_date）
+// 筛选：點貨狀態 + 有效期 + 各仓位是否已填(>0)
 const filterCount = ref('all')
 const filterExpiry = ref('all')
+const filter3pl = ref('all')   // all / has(>0) / none(=0)
+const filterWs = ref('all')
+const filterSd4 = ref('all')
 const loading = ref(false)
 const saving = ref(false)
 
@@ -230,13 +233,25 @@ const filteredRows = computed(() => {
     }
     if (filterExpiry.value === 'no_date' && !hasNoDate(r)) return false
     if (filterExpiry.value === 'has_date' && hasNoDate(r)) return false
+    // 各仓位是否已填(>0)
+    if (!whPass(filter3pl.value, parseInt(r.tpl) || 0)) return false
+    if (!whPass(filterWs.value, parseInt(r.ws) || 0)) return false
+    if (!whPass(filterSd4.value, calcSD4(r) || 0)) return false
     return true
   })
 })
 
+// 仓位筛选判定：mode = all / has(>0) / none(=0)
+function whPass(mode, v) {
+  if (mode === 'has') return v > 0
+  if (mode === 'none') return !(v > 0)
+  return true
+}
+
 // chip 上显示的数量（基于全部 rows，不受当前筛选影响）
 const filterCounts = computed(() => {
   let uncounted = 0, under = 0, matched = 0, over = 0, noDate = 0, hasDate = 0
+  let tplHas = 0, wsHas = 0, sd4Has = 0
   for (const r of rows) {
     const m = isMismatch(r)
     if (m === 'not_counted') uncounted++
@@ -244,8 +259,17 @@ const filterCounts = computed(() => {
     else if (m === 'over') over++
     else matched++
     if (hasNoDate(r)) noDate++; else hasDate++
+    if ((parseInt(r.tpl) || 0) > 0) tplHas++
+    if ((parseInt(r.ws) || 0) > 0) wsHas++
+    if ((calcSD4(r) || 0) > 0) sd4Has++
   }
-  return { total: rows.length, uncounted, under, matched, over, noDate, hasDate }
+  const n = rows.length
+  return {
+    total: n, uncounted, under, matched, over, noDate, hasDate,
+    tplHas, tplNone: n - tplHas,
+    wsHas, wsNone: n - wsHas,
+    sd4Has, sd4None: n - sd4Has,
+  }
 })
 
 function calcSD4(r) {
@@ -1050,7 +1074,25 @@ onActivated(_autoLoadFromQuery)
         <button :class="chipCls(filterExpiry==='no_date')" @click="filterExpiry='no_date'">無到期日 {{ filterCounts.noDate }}</button>
         <button :class="chipCls(filterExpiry==='has_date')" @click="filterExpiry='has_date'">有到期日 {{ filterCounts.hasDate }}</button>
       </div>
-      <span v-if="filterCount!=='all' || filterExpiry!=='all'" class="text-gray-500">顯示 {{ filteredRows.length }} 行</span>
+      <div class="flex items-center gap-1.5">
+        <span class="font-semibold" style="color:#1d4ed8;">3PL</span>
+        <button :class="chipCls(filter3pl==='all')" @click="filter3pl='all'">全部</button>
+        <button :class="chipCls(filter3pl==='has')" @click="filter3pl='has'">有 {{ filterCounts.tplHas }}</button>
+        <button :class="chipCls(filter3pl==='none')" @click="filter3pl='none'">無 {{ filterCounts.tplNone }}</button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="font-semibold" style="color:#065f46;">WS</span>
+        <button :class="chipCls(filterWs==='all')" @click="filterWs='all'">全部</button>
+        <button :class="chipCls(filterWs==='has')" @click="filterWs='has'">有 {{ filterCounts.wsHas }}</button>
+        <button :class="chipCls(filterWs==='none')" @click="filterWs='none'">無 {{ filterCounts.wsNone }}</button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="font-semibold" style="color:#7c3aed;">SD4</span>
+        <button :class="chipCls(filterSd4==='all')" @click="filterSd4='all'">全部</button>
+        <button :class="chipCls(filterSd4==='has')" @click="filterSd4='has'">有 {{ filterCounts.sd4Has }}</button>
+        <button :class="chipCls(filterSd4==='none')" @click="filterSd4='none'">無 {{ filterCounts.sd4None }}</button>
+      </div>
+      <span v-if="filterCount!=='all' || filterExpiry!=='all' || filter3pl!=='all' || filterWs!=='all' || filterSd4!=='all'" class="text-gray-500">顯示 {{ filteredRows.length }} 行</span>
     </div>
 
     <!-- 表格 -->
