@@ -180,27 +180,62 @@ async function scanSku() {
  *  iframe 不受 popup blocker 限制，可以 await 后再 print。
  *  跟手动按钮 printLabelForItem 共用 cache，避免重复请求。
  */
-async function autoPrintLabelForItem(item) {
-  const bc = item.barcode
-  if (!bc) return  // 商品没条码就别打了
+// ── Label Master 候选条码 ──────────────────────────────────────
+// 重包装母件(如 ASA-114423A / FRIT-113427B)自己常无 master，真 master 在
+// 子件真条码上(如 4946842541454)。所以查 master 时按 [母件, 子件...] 依次试，
+// 第一个查到的就用 —— 等于"按你扫的子件真条码也能查到"。
+function labelCandidates(item) {
+  const out = []
+  const seen = new Set()
+  for (let b of [item.barcode, ...((item.components || []).map(c => c.barcode))]) {
+    b = (b || '').trim()
+    if (b && !seen.has(b)) { seen.add(b); out.push(b) }
+  }
+  return out
+}
+
+// 查单个条码的 master（命中 cache 直接用；loading 则等；否则现查）。永不抛。
+async function lookupOne(bc) {
   let cached = labelCache.get(bc)
-  // cache 命中（含 loading sentinel）— 等 loading 完成或直接用
   if (cached === 'loading') {
-    // 等 preloadLabel 那次请求完成（最简单：轮询，一般 ~30-100ms 就好）
     for (let i = 0; i < 50; i++) {
       await new Promise(r => setTimeout(r, 50))
       cached = labelCache.get(bc)
       if (cached !== 'loading') break
     }
   }
-  if (!cached || cached === 'loading') {
-    showToast(`${item.sku} 標籤資料載入超時`, 'warning')
-    return
+  if (cached && cached !== 'loading') return cached
+  labelCache.set(bc, 'loading')
+  try {
+    const res = await labelsApi.lookupByBarcode(bc)
+    const val = { product: res.product, labels: res.labels || [] }
+    labelCache.set(bc, val)
+    return val
+  } catch (err) {
+    const val = { product: null, labels: [] }
+    if (err.handledByInterceptor) { labelCache.delete(bc); return val }
+    if (err.response?.data?.error === 'product_not_found') labelCache.set(bc, val)
+    else labelCache.delete(bc)
+    return val
   }
-  // 用戶 spec 2026-06-18: 出库只打 Label Master 标签,不打条码标签(去掉 printBarcodeLabel)。
+}
+
+// 按候选条码依次查，返回第一个有 master 的 labels；都没有则 []。
+async function resolveItemLabels(item) {
+  for (const bc of labelCandidates(item)) {
+    const r = await lookupOne(bc)
+    if (r.labels && r.labels.length) return r.labels
+  }
+  return []
+}
+
+async function autoPrintLabelForItem(item) {
+  if (!labelCandidates(item).length) return  // 商品没条码就别打了
+  const labels = await resolveItemLabels(item)
+  // 用戶 spec 2026-06-18: 出库只打 Label Master 标签,不打条码标签。
   //   冇 master 資料 → 咩都唔打 + 右上角 tips。
-  if (cached.labels && cached.labels.length) {
-    printLabels(cached.labels, 1)
+  if (labels.length) {
+    printLabels(labels, 1)
   } else {
     showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
   }
@@ -217,53 +252,23 @@ async function autoPrintLabelForItem(item) {
 //
 // 罕见 race：员工扫完立刻点按钮，lookup 还没回来 → toast 提示稍后重试
 
-/** 背景预热（不打印）— scanSku 调，结果塞 cache */
+/** 背景预热（不打印）— scanSku 调，预热所有候选条码（母件 + 子件） */
 function preloadLabel(item) {
-  const bc = item.barcode
-  if (!bc) return
-  if (labelCache.has(bc)) return  // 已预热 / 加载中 / 已知失败 — 都不重发
-  labelCache.set(bc, 'loading')   // sentinel
-  labelsApi.lookupByBarcode(bc)
-    .then(res => {
-      labelCache.set(bc, {
-        product: res.product,
-        labels:  res.labels || [],
-      })
-    })
-    .catch(err => {
-      if (err.handledByInterceptor) {
-        labelCache.delete(bc)
-        return
-      }
-      const code = err.response?.data?.error
-      if (code === 'product_not_found') {
-        // 找不到 — 缓存空结果防重试，按按钮时 toast 提示
-        labelCache.set(bc, { product: null, labels: [] })
-      } else {
-        labelCache.delete(bc)  // 其他错误清掉，下次按按钮可重试
-      }
-    })
+  for (const bc of labelCandidates(item)) {
+    if (!labelCache.has(bc)) lookupOne(bc)  // fire-and-forget，结果塞 cache
+  }
 }
 
-/** 员工手动点 [🖨️] 按钮 — 同步 click 触发 */
-function printLabelForItem(item) {
-  const bc = item.barcode
-  if (!bc) {
+/** 员工手动点 [🖨️] 按钮 — 打印走 iframe(不受 popup 拦截)，可 await */
+async function printLabelForItem(item) {
+  if (!labelCandidates(item).length) {
     showToast(`此商品無條碼`, 'warning')
     return
   }
-  const cached = labelCache.get(bc)
-  if (!cached || cached === 'loading') {
-    // 罕见 — 员工扫完瞬间就点
-    showToast('資料載入中，請稍後重試', 'warning')
-    // 没预热过的话现在补一发
-    if (!cached) preloadLabel(item)
-    return
-  }
+  const labels = await resolveItemLabels(item)
   // 用戶 spec 2026-06-18: 只打 Label Master 标签,不打条码标签。冇 master → tips。
-  // 同步 click → 同步 window.open，user gesture 链完整
-  if (cached.labels && cached.labels.length) {
-    printLabels(cached.labels, 1)
+  if (labels.length) {
+    printLabels(labels, 1)
   } else {
     showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
   }
@@ -343,23 +348,10 @@ async function shipAll() {
 
 /** 確保標籤資料就緒後,給 item 補打 count 份（全部出庫專用,兼容從未掃過嘅冷 cache） */
 async function printRemainingLabels(item, count) {
-  const bc = item.barcode
-  if (!bc || count <= 0) return
-  if (!labelCache.has(bc)) preloadLabel(item)   // 從未掃過 → cache 係冷嘅,現在補一發
-  let cached = labelCache.get(bc)
-  if (cached === 'loading') {
-    for (let i = 0; i < 50; i++) {
-      await new Promise(r => setTimeout(r, 50))
-      cached = labelCache.get(bc)
-      if (cached !== 'loading') break
-    }
-  }
-  if (!cached || cached === 'loading') {
-    showToast(`${item.sku} 標籤資料載入超時`, 'warning')
-    return
-  }
-  if (cached.labels && cached.labels.length) {
-    printLabels(cached.labels, count)
+  if (!labelCandidates(item).length || count <= 0) return
+  const labels = await resolveItemLabels(item)
+  if (labels.length) {
+    printLabels(labels, count)
   } else {
     showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
   }
