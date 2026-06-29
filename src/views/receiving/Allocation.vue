@@ -42,6 +42,9 @@ const partnerName = ref('')
 const datePlanned = ref('')
 const poState = ref('')
 const search = ref('')
+// 筛选：點貨狀態（all/uncounted/counted）+ 有效期（all/no_date/has_date）
+const filterCount = ref('all')
+const filterExpiry = ref('all')
 const loading = ref(false)
 const saving = ref(false)
 
@@ -206,14 +209,34 @@ const activeExtraCols = computed(() =>
 )
 const canAddCol = computed(() => extraCols.some(c => !c.active))
 
+// 行级判定：未點(現點 null) / 無到期日(dates 空)
+function isUncounted(r) { return r.counted == null }
+function hasNoDate(r) { return !(r.dates && r.dates.length) }
+
 const filteredRows = computed(() => {
-  if (!search.value.trim()) return rows
-  const q = search.value.toLowerCase()
-  return rows.filter(
-    r => (r.sku || '').toLowerCase().includes(q)
+  const q = search.value.trim().toLowerCase()
+  return rows.filter((r) => {
+    if (q && !(
+      (r.sku || '').toLowerCase().includes(q)
       || (r.barcode || '').toLowerCase().includes(q)
-      || (r.name || '').toLowerCase().includes(q),
-  )
+      || (r.name || '').toLowerCase().includes(q)
+    )) return false
+    if (filterCount.value === 'uncounted' && !isUncounted(r)) return false
+    if (filterCount.value === 'counted' && isUncounted(r)) return false
+    if (filterExpiry.value === 'no_date' && !hasNoDate(r)) return false
+    if (filterExpiry.value === 'has_date' && hasNoDate(r)) return false
+    return true
+  })
+})
+
+// chip 上显示的数量（基于全部 rows，不受当前筛选影响）
+const filterCounts = computed(() => {
+  let uncounted = 0, counted = 0, noDate = 0, hasDate = 0
+  for (const r of rows) {
+    if (isUncounted(r)) uncounted++; else counted++
+    if (hasNoDate(r)) noDate++; else hasDate++
+  }
+  return { total: rows.length, uncounted, counted, noDate, hasDate }
 })
 
 function calcSD4(r) {
@@ -554,6 +577,13 @@ function fmtDate(s) {
 }
 function fmtDates(arr) {
   return (Array.isArray(arr) ? arr : []).map(fmtDate).join(', ')
+}
+
+// 筛选 chip 样式
+function chipCls(active) {
+  return active
+    ? 'px-2 py-0.5 rounded-md border-0 cursor-pointer font-semibold bg-blue-600 text-white'
+    : 'px-2 py-0.5 rounded-md border border-gray-300 cursor-pointer bg-white text-gray-600 hover:bg-gray-50'
 }
 
 // ============================================================
@@ -993,6 +1023,23 @@ onActivated(_autoLoadFromQuery)
         </span>
         <span class="text-yellow-500 text-xs ml-2">— 生成 TR 時將跳過點不足/未點行</span>
       </div>
+    </div>
+
+    <!-- 筛选条：點貨狀態 + 有效期 -->
+    <div class="mx-3 sm:mx-4 mt-2 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[11px] flex-shrink-0">
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 font-semibold">點貨</span>
+        <button :class="chipCls(filterCount==='all')" @click="filterCount='all'">全部 {{ filterCounts.total }}</button>
+        <button :class="chipCls(filterCount==='uncounted')" @click="filterCount='uncounted'">未點貨 {{ filterCounts.uncounted }}</button>
+        <button :class="chipCls(filterCount==='counted')" @click="filterCount='counted'">已點貨 {{ filterCounts.counted }}</button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-gray-400 font-semibold">有效期</span>
+        <button :class="chipCls(filterExpiry==='all')" @click="filterExpiry='all'">全部</button>
+        <button :class="chipCls(filterExpiry==='no_date')" @click="filterExpiry='no_date'">無到期日 {{ filterCounts.noDate }}</button>
+        <button :class="chipCls(filterExpiry==='has_date')" @click="filterExpiry='has_date'">有到期日 {{ filterCounts.hasDate }}</button>
+      </div>
+      <span v-if="filterCount!=='all' || filterExpiry!=='all'" class="text-gray-500">顯示 {{ filteredRows.length }} 行</span>
     </div>
 
     <!-- 表格 -->
