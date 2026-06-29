@@ -323,38 +323,16 @@ function forceComplete() {
 //   貨其實都齊,只係懶得逐件掃 → 一鍵把每個商品「出庫數量」補到「訂單數量」,
 //   再走【正常出庫】(force=false,因為補滿後 scanned===required,數量啱晒)。
 //   例:出 24 個,只掃咗 2 個 → 點呢個 → 補上剩下 22 個一齊出。
-//   開咗「是否列印」→ 同剩低嘅數量補打標籤(每項打 delta 份)。
+//   ⚠ 偷懶按鈕:永遠唔打印標籤(無視「是否列印」勾選)。
 // ============================================================
 async function shipAll() {
   if (!pickingId.value || validating.value || !items.value.length) return
-  // 1) 收集每項「剩下要補」嘅差量,並把出庫數量補滿
-  const deltas = []
+  // 把每項出庫數量補滿到訂單數量
   for (const it of items.value) {
-    const delta = it.required - it.scanned
-    if (delta > 0) {
-      deltas.push({ item: it, delta })
-      it.scanned = it.required
-    }
+    if (it.required > it.scanned) it.scanned = it.required
   }
-  // 2) 開咗列印 → 同剩低數量補打標籤(每項打 delta 份)
-  if (printAfterScan.value) {
-    for (const { item, delta } of deltas) {
-      await printRemainingLabels(item, delta)
-    }
-  }
-  // 3) 正常出庫(已補滿,唔使 force)
+  // 全部出庫永不打印標籤 —— 直接正常出庫(已補滿,唔使 force)
   await doValidate(false)
-}
-
-/** 確保標籤資料就緒後,給 item 補打 count 份（全部出庫專用,兼容從未掃過嘅冷 cache） */
-async function printRemainingLabels(item, count) {
-  if (!labelCandidates(item).length || count <= 0) return
-  const labels = await resolveItemLabels(item)
-  if (labels.length) {
-    printLabels(labels, count)
-  } else {
-    showToast(`${item.sku} 冇 Label Master 標籤資料,未列印`, 'warning')
-  }
 }
 
 // ============================================================
