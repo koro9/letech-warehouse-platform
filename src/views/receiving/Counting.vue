@@ -130,6 +130,34 @@ function statusOfItem(it) {
   return { label: '進行中', cls: 'text-amber-600 bg-amber-50' }
 }
 
+// SKU 清单状态筛选：all / pending(待點貨) / progress(進行中) / done(已完成) / verify(需核實)
+const filterStatus = ref('all')
+const _STATUS_LABEL = { pending: '待點貨', progress: '進行中', done: '已完成', verify: '需核實' }
+const statusCounts = computed(() => {
+  const c = { all: 0, pending: 0, progress: 0, done: 0, verify: 0 }
+  const items = curPO.value?.items || []
+  c.all = items.length
+  for (const it of items) {
+    const l = statusOfItem(it).label
+    if (l === '待點貨') c.pending++
+    else if (l === '進行中') c.progress++
+    else if (l === '已完成') c.done++
+    else c.verify++
+  }
+  return c
+})
+const filteredItems = computed(() => {
+  const items = curPO.value?.items || []
+  if (filterStatus.value === 'all') return items
+  const want = _STATUS_LABEL[filterStatus.value]
+  return items.filter(it => statusOfItem(it).label === want)
+})
+function chipCls(active) {
+  return active
+    ? 'px-2.5 py-1 rounded-lg border-0 cursor-pointer text-xs font-semibold bg-blue-600 text-white'
+    : 'px-2.5 py-1 rounded-lg border border-gray-300 cursor-pointer text-xs bg-white text-gray-600'
+}
+
 // ============================================================
 // 计算
 // ============================================================
@@ -807,9 +835,18 @@ onActivated(_autoLoadFromQuery)
       </div>
     </div>
 
+    <!-- 状态筛选 -->
+    <div class="flex items-center gap-1.5 flex-wrap px-1 mb-2">
+      <button :class="chipCls(filterStatus==='all')" @click="filterStatus='all'">全部 {{ statusCounts.all }}</button>
+      <button :class="chipCls(filterStatus==='pending')" @click="filterStatus='pending'">待點貨 {{ statusCounts.pending }}</button>
+      <button :class="chipCls(filterStatus==='progress')" @click="filterStatus='progress'">進行中 {{ statusCounts.progress }}</button>
+      <button :class="chipCls(filterStatus==='done')" @click="filterStatus='done'">已完成 {{ statusCounts.done }}</button>
+      <button v-if="statusCounts.verify > 0" :class="chipCls(filterStatus==='verify')" @click="filterStatus='verify'">需核實 {{ statusCounts.verify }}</button>
+    </div>
+
     <!-- 商品清单 -->
     <div
-      v-for="it in curPO.items"
+      v-for="it in filteredItems"
       :key="it.sku"
       class="sku-item"
       :class="dirtySkus.has(it.sku) ? 'sku-item-dirty' : ''"
