@@ -1110,6 +1110,7 @@ onActivated(_autoLoadFromQuery)
           class="flex-1 py-1.5 px-2 rounded-lg text-sm outline-none"
           style="border:1.5px solid #FBC02D;"
           @input="curItem.board = $event.target.value; markDirty(curSKU)"
+          @keydown.enter.prevent="$event.target.blur()"
         />
       </div>
     </div>
