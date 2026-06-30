@@ -194,7 +194,7 @@ function previewMeta(renderType) {
         v-model="barcodeInput"
         class="g-input flex-1"
         style="height:48px;min-width:0;"
-        placeholder="🔍 掃描或輸入商品條碼"
+        placeholder="🔍 掃描或輸入商品條碼 / SKU"
         autocomplete="off"
         @keydown.enter="lookup"
       />
