@@ -791,7 +791,7 @@ onActivated(_autoLoadFromQuery)
         <div class="flex-1 relative">
           <input
             v-model="bcInput"
-            @keydown.enter="scanBC"
+            @keydown.enter="scanBC(); $event.target.blur()"
             class="g-input w-full font-mono"
             style="padding-right:40px;"
             placeholder="Barcode..."
