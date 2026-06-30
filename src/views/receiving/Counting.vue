@@ -812,6 +812,24 @@ onActivated(_autoLoadFromQuery)
       <span>共 {{ curPO.items.length }} 項</span>
     </div>
 
+    <!-- 點貨進度條：已完成(绿) + 進行中(黄) / 總 SKU -->
+    <div class="mb-3">
+      <div class="flex justify-between text-[11px] text-gray-500 mb-1">
+        <span>點貨進度</span>
+        <span><b class="text-green-600">{{ statusCounts.done }}</b> / {{ statusCounts.all }} SKU 完成（{{ statusCounts.all ? Math.round(statusCounts.done / statusCounts.all * 100) : 0 }}%）</span>
+      </div>
+      <div class="h-2 bg-gray-100 rounded-full overflow-hidden flex">
+        <div class="h-full bg-green-500 transition-all" :style="{ width: (statusCounts.all ? statusCounts.done / statusCounts.all * 100 : 0) + '%' }"></div>
+        <div class="h-full bg-amber-400 transition-all" :style="{ width: (statusCounts.all ? statusCounts.progress / statusCounts.all * 100 : 0) + '%' }"></div>
+      </div>
+      <div class="flex gap-3 text-[10px] text-gray-400 mt-1 flex-wrap">
+        <span>✅ 已完成 {{ statusCounts.done }}</span>
+        <span>🟡 進行中 {{ statusCounts.progress }}</span>
+        <span>⚪ 待點貨 {{ statusCounts.pending }}</span>
+        <span v-if="statusCounts.verify">🔴 需核實 {{ statusCounts.verify }}</span>
+      </div>
+    </div>
+
     <!-- 扫码区 -->
     <div class="bc-section">
       <div class="text-xs font-bold mb-2" style="color:#4A90D9;">📱 掃描條碼</div>
