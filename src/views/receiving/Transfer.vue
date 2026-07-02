@@ -657,8 +657,11 @@ async function qtyEnter(item, idx) {
   const ae = document.activeElement
   if (boxEls[idx] && ae !== boxEls[idx] && (!ae || ae.tagName !== 'INPUT')) _focus(boxEls[idx])
 }
-// Tab 鍵導航(純聚焦,不觸發打印;比 Enter 可靠,唔會被打印搶焦點)
-function tabToBox(idx) { nextTick(() => _focus(boxEls[idx])) }
+// 用戶 spec:Tab=打印(按輸入數量),Enter=切換下一個輸入框。
+function tabToBox(idx) { nextTick(() => _focus(boxEls[idx])) }   // Enter 用:揀貨→箱數
+async function qtyPrint(item) {                                   // Tab 用:按數量打印
+  try { await onPickQtyBlur(item) } catch (e) { /* 打印失敗不擋操作 */ }
+}
 function boxEnter(idx) {
   const items = curGroup.value?.items || []
   let n = idx + 1
@@ -1781,8 +1784,8 @@ onBeforeUnmount(() => {
                 : 'border-slate-200 bg-white text-slate-800'"
               :disabled="isItemLocked(item)"
               @input="updItem(item, 'pickQty', $event.target.value)"
-              @keydown.enter="qtyEnter(item, idx)"
-              @keydown.tab.exact.prevent="tabToBox(idx)"
+              @keydown.enter.prevent="tabToBox(idx)"
+              @keydown.tab.exact.prevent="qtyPrint(item)"
             />
           </div>
           <div class="flex-1">
