@@ -664,7 +664,15 @@ function boxEnter(idx) {
   if (n < items.length) nextTick(() => _focus(qtyEls[n]))
   else nextTick(() => boxEls[idx] && boxEls[idx].blur())   // 最後一行:收鍵盤
 }
-watch(view, (v) => { if (v === 'item') focusFirstQty() })
+watch(view, (v) => {
+  if (v === 'item') {
+    focusFirstQty()
+  } else if (v === 'trdetail') {
+    // 進入 / 從 item 頁 save 返回 trdetail → 自動聚焦 barcode 搜尋框,方便繼續掃
+    nextTick(() => bcInputEl.value?.focus())
+    setTimeout(() => bcInputEl.value?.focus(), 300)   // 兜底:輸入框稍後才渲染
+  }
+})
 
 async function refreshData() {
   if (view.value === 'search') return
