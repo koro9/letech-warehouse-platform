@@ -657,6 +657,8 @@ async function qtyEnter(item, idx) {
   const ae = document.activeElement
   if (boxEls[idx] && ae !== boxEls[idx] && (!ae || ae.tagName !== 'INPUT')) _focus(boxEls[idx])
 }
+// Tab 鍵導航(純聚焦,不觸發打印;比 Enter 可靠,唔會被打印搶焦點)
+function tabToBox(idx) { nextTick(() => _focus(boxEls[idx])) }
 function boxEnter(idx) {
   const items = curGroup.value?.items || []
   let n = idx + 1
@@ -1780,6 +1782,7 @@ onBeforeUnmount(() => {
               :disabled="isItemLocked(item)"
               @input="updItem(item, 'pickQty', $event.target.value)"
               @keydown.enter="qtyEnter(item, idx)"
+              @keydown.tab.exact.prevent="tabToBox(idx)"
             />
           </div>
           <div class="flex-1">
@@ -1794,6 +1797,7 @@ onBeforeUnmount(() => {
               :disabled="isItemLocked(item)"
               @input="updItem(item, 'boxes', $event.target.value)"
               @keydown.enter="boxEnter(idx)"
+              @keydown.tab.exact.prevent="boxEnter(idx)"
             />
           </div>
         </div>
