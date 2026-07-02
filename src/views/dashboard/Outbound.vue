@@ -74,6 +74,7 @@ async function loadOrder() {
       barcode: it.barcode,
       barcode2: it.barcode2 || '',
       required: it.required_qty,
+      systemExpiry: it.system_expiry || '',   // 系统预留批次有效期
       scanned: 0,
       isBom: it.is_bom || false,
       components: (it.components || []).map((c) => ({
@@ -437,6 +438,7 @@ onDeactivated(() => {
             <th>中文名</th>
             <th class="hidden lg:table-cell">barcode</th>
             <th class="hidden lg:table-cell">barcode2</th>
+            <th class="text-center">系統有效期</th>
             <th class="text-center">訂單數量</th>
             <th class="text-center">出庫數量</th>
             <th class="text-center">列印</th>
@@ -444,7 +446,7 @@ onDeactivated(() => {
         </thead>
         <tbody>
           <tr v-if="items.length === 0">
-            <td :colspan="7" class="text-center py-16 text-gray-300">
+            <td :colspan="8" class="text-center py-16 text-gray-300">
               掃描運單號開始出庫核驗
             </td>
           </tr>
@@ -454,6 +456,9 @@ onDeactivated(() => {
               <td>{{ it.name }}</td>
               <td class="hidden lg:table-cell font-mono text-base font-semibold text-gray-700">{{ it.barcode }}</td>
               <td class="hidden lg:table-cell font-mono text-sm text-gray-500">{{ it.barcode2 }}</td>
+              <td class="text-center font-mono text-sm" :class="it.systemExpiry ? 'text-gray-700' : 'text-gray-300'">
+                {{ it.systemExpiry || '—' }}
+              </td>
               <td class="text-center font-semibold">{{ it.required }}</td>
               <td class="text-center font-bold" :class="it.scanned >= it.required ? 'text-green-600' : 'text-amber-600'">
                 {{ it.scanned }}
@@ -475,6 +480,7 @@ onDeactivated(() => {
               <td class="text-sm text-amber-900">{{ c.name }}</td>
               <td class="hidden lg:table-cell font-mono text-sm font-semibold text-amber-700">{{ c.barcode }}</td>
               <td class="hidden lg:table-cell"></td>
+              <td class="text-center text-amber-300">—</td>
               <td class="text-center text-xs text-amber-700">{{ c.requiredQty }}</td>
               <td class="text-center text-xs font-semibold"
                   :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-600' : 'text-amber-700'">
@@ -484,8 +490,8 @@ onDeactivated(() => {
             </tr>
           </template>
           <tr v-if="pickingId" class="bg-gray-50 font-bold">
-            <td :colspan="4" class="text-right hidden lg:table-cell">合計</td>
-            <td colspan="2" class="text-right lg:hidden">合計</td>
+            <td :colspan="5" class="text-right hidden lg:table-cell">合計</td>
+            <td colspan="3" class="text-right lg:hidden">合計</td>
             <td class="text-center">{{ totalRequired }}</td>
             <td class="text-center">{{ totalScanned }}</td>
             <td></td>
@@ -524,6 +530,13 @@ onDeactivated(() => {
               :class="it.scanned >= it.required ? 'bg-green-500' : 'bg-amber-500'"
               :style="{ width: Math.min(100, (it.scanned / it.required) * 100) + '%' }"
             ></div>
+          </div>
+          <!-- 系統有效期(系统预留批次)-->
+          <div class="mt-1.5 text-xs flex items-center gap-1">
+            <span class="text-gray-400">系統有效期</span>
+            <span class="font-mono" :class="it.systemExpiry ? 'text-gray-700' : 'text-gray-300'">
+              {{ it.systemExpiry || '—' }}
+            </span>
           </div>
           <!-- BOM 子件：未组装时可改扫子件凑套 — 加深琥珀色高亮，母子单一眼可辨 -->
           <div v-if="it.components && it.components.length" class="mt-2 space-y-1">
