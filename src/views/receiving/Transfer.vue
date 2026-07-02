@@ -635,6 +635,32 @@ async function saveAndBack() {
   }
 }
 
+// ── 揀貨鍵盤流 ──────────────────────────────────────────────
+// 進入 item 頁(掃完貨/選中)→ 自動聚焦第一行「揀貨」;
+// 揀貨輸完 Enter → 跳「箱數」;箱數 Enter → 跳下一行「揀貨」(跳過已鎖行);最後一行收鍵盤。
+const qtyEls = {}
+const boxEls = {}
+function _focus(el) { if (el) { try { el.focus(); el.select && el.select() } catch (e) {} } }
+function focusFirstQty() {
+  const items = curGroup.value?.items || []
+  let i = 0
+  while (i < items.length && isItemLocked(items[i])) i++
+  nextTick(() => _focus(qtyEls[i]))
+}
+async function qtyEnter(item, idx) {
+  await onPickQtyBlur(item)          // 保留原打印/去重
+  await nextTick()
+  _focus(boxEls[idx])
+}
+function boxEnter(idx) {
+  const items = curGroup.value?.items || []
+  let n = idx + 1
+  while (n < items.length && isItemLocked(items[n])) n++
+  if (n < items.length) nextTick(() => _focus(qtyEls[n]))
+  else nextTick(() => boxEls[idx] && boxEls[idx].blur())   // 最後一行:收鍵盤
+}
+watch(view, (v) => { if (v === 'item') focusFirstQty() })
+
 async function refreshData() {
   if (view.value === 'search') return
   if (view.value === 'trlist') {
@@ -1728,6 +1754,7 @@ onBeforeUnmount(() => {
           <div class="flex-1">
             <label class="block text-[10px] text-slate-400 font-bold mb-1.5 tracking-widest">揀貨</label>
             <input
+              :ref="el => (qtyEls[idx] = el)"
               :value="(parseInt(item.pickQty)||0) === 0 ? '' : item.pickQty"
               type="number"
               inputmode="numeric"
@@ -1739,12 +1766,13 @@ onBeforeUnmount(() => {
                 : 'border-slate-200 bg-white text-slate-800'"
               :disabled="isItemLocked(item)"
               @input="updItem(item, 'pickQty', $event.target.value)"
-              @keydown.enter="onPickQtyBlur(item)"
+              @keydown.enter="qtyEnter(item, idx)"
             />
           </div>
           <div class="flex-1">
             <label class="block text-[10px] text-slate-400 font-bold mb-1.5 tracking-widest">箱數</label>
             <input
+              :ref="el => (boxEls[idx] = el)"
               :value="(parseInt(item.boxes)||0) === 0 ? '' : item.boxes"
               type="number"
               inputmode="numeric"
@@ -1752,6 +1780,7 @@ onBeforeUnmount(() => {
               class="w-full h-12 text-center text-lg font-black rounded-xl outline-none border-2 border-slate-200 bg-white text-slate-800"
               :disabled="isItemLocked(item)"
               @input="updItem(item, 'boxes', $event.target.value)"
+              @keydown.enter="boxEnter(idx)"
             />
           </div>
         </div>
