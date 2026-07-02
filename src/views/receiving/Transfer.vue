@@ -624,6 +624,17 @@ function goBack() {
   }
 }
 
+// item 页底部按钮:草稿态 → 真存后端(落库,断网不丢)再返回 trdetail;
+// 存失败/冲突(dirty 未清 或 弹了冲突框)则留在本页,可重存。非草稿 → 直接返回。
+async function saveAndBack() {
+  if (isLocalDraft.value && !isLocked.value && dirty.value) {
+    await saveTR({ afterSave: 'stay', silent: true })
+    if (!dirty.value && !conflictModal.open) view.value = 'trdetail'
+  } else {
+    goBack()
+  }
+}
+
 async function refreshData() {
   if (view.value === 'search') return
   if (view.value === 'trlist') {
@@ -1765,8 +1776,8 @@ onBeforeUnmount(() => {
 
     <!-- 底部操作 -->
     <div class="flex-shrink-0 flex border-t border-gray-200 bg-white safe-pb">
-      <button class="flex-1 py-4 text-white border-0 font-bold text-[15px] cursor-pointer" style="background:linear-gradient(90deg,#4f46e5,#7c3aed);" @click="goBack">
-        {{ isLocalDraft && !isLocked ? '確認返回（待儲存）' : '← 返回' }}
+      <button class="flex-1 py-4 text-white border-0 font-bold text-[15px] cursor-pointer disabled:opacity-60" style="background:linear-gradient(90deg,#4f46e5,#7c3aed);" :disabled="saving" @click="saveAndBack">
+        {{ isLocalDraft && !isLocked ? (saving ? '儲存中…' : '💾 儲存並返回') : '← 返回' }}
       </button>
     </div>
   </div>
