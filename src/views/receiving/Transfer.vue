@@ -648,9 +648,14 @@ function focusFirstQty() {
   nextTick(() => _focus(qtyEls[i]))
 }
 async function qtyEnter(item, idx) {
-  await onPickQtyBlur(item)          // 保留原打印/去重
+  // 先即時聚焦箱數(唔等打印,避免打印報錯/搶焦點導致聚焦落空)
   await nextTick()
   _focus(boxEls[idx])
+  // 再觸發打印(容錯),打印可能重渲染 → 若焦點飄走(非落喺其它輸入框)再補聚焦一次
+  try { await onPickQtyBlur(item) } catch (e) { /* 打印失敗唔影響聚焦 */ }
+  await nextTick()
+  const ae = document.activeElement
+  if (boxEls[idx] && ae !== boxEls[idx] && (!ae || ae.tagName !== 'INPUT')) _focus(boxEls[idx])
 }
 function boxEnter(idx) {
   const items = curGroup.value?.items || []
