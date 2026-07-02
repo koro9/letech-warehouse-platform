@@ -629,10 +629,12 @@ function goBack() {
 async function saveAndBack() {
   if (isLocalDraft.value && !isLocked.value && dirty.value) {
     await saveTR({ afterSave: 'stay', silent: true })
-    if (!dirty.value && !conflictModal.open) view.value = 'trdetail'
+    if (dirty.value || conflictModal.open) return   // 存失敗/衝突 → 留在本頁
+    view.value = 'trdetail'
   } else {
-    goBack()
+    goBack()   // item → trdetail
   }
+  focusBarcode()   // 顯式聚焦 barcode 框(多次重試),不只靠 watch
 }
 
 // ── 揀貨鍵盤流 ──────────────────────────────────────────────
@@ -669,14 +671,15 @@ function boxEnter(idx) {
   if (n < items.length) nextTick(() => _focus(qtyEls[n]))
   else nextTick(() => boxEls[idx] && boxEls[idx].blur())   // 最後一行:收鍵盤
 }
+// 聚焦 barcode 搜尋框 — 多次重試,避開 save 後 activeTransfer 更新導致的重渲染搶焦點
+function focusBarcode() {
+  ;[0, 150, 350, 600, 900].forEach(t => setTimeout(() => {
+    if (view.value === 'trdetail') bcInputEl.value?.focus()
+  }, t))
+}
 watch(view, (v) => {
-  if (v === 'item') {
-    focusFirstQty()
-  } else if (v === 'trdetail') {
-    // 進入 / 從 item 頁 save 返回 trdetail → 自動聚焦 barcode 搜尋框,方便繼續掃
-    nextTick(() => bcInputEl.value?.focus())
-    setTimeout(() => bcInputEl.value?.focus(), 300)   // 兜底:輸入框稍後才渲染
-  }
+  if (v === 'item') focusFirstQty()
+  else if (v === 'trdetail') focusBarcode()
 })
 
 async function refreshData() {
