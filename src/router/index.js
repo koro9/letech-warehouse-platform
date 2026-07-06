@@ -24,6 +24,7 @@ const routes = [
       { path: '',           name: 'home',      component: () => import('@/views/dashboard/Dashboard.vue'), meta: { system: 'dashboard' } },
       { path: 'outbound',   name: 'outbound',  component: () => import('@/views/dashboard/Outbound.vue'),  meta: { system: 'dashboard' } },
       { path: 'shipping',   name: 'shipping',  component: () => import('@/views/dashboard/Shipping.vue'),  meta: { system: 'dashboard' } },
+      { path: 'shipping/failed', name: 'shipping-failed', component: () => import('@/views/dashboard/FailedWaybills.vue'), meta: { system: 'dashboard' } },
       { path: 'split',      name: 'split',     component: () => import('@/views/dashboard/Split.vue'),     meta: { system: 'dashboard' } },
       { path: 'labels',     name: 'labels',    component: () => import('@/views/dashboard/Labels.vue'),    meta: { system: 'dashboard' } },
       { path: 'orders',     name: 'orders',    component: () => import('@/views/dashboard/Orders.vue'),    meta: { system: 'dashboard' } },

@@ -32,8 +32,11 @@
  * KeepAlive：onActivated 启动数据加载 + 轮询；onDeactivated 清掉轮询定时器。
  */
 import { ref, computed, onActivated, onDeactivated, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { shipping } from '@/api'
 import { showToast } from '@/composables/useToast'
+
+const router = useRouter()
 
 // ============================================================
 // 数据状态
@@ -401,6 +404,13 @@ function rowClass(r) {
           <h2 class="text-base sm:text-lg font-bold text-gray-800">待出庫面單</h2>
           <span class="hidden sm:inline text-xs text-gray-400 ml-2">點擊「⚡ 今日 / ⚡ 明日」按鈕生成</span>
         </div>
+        <!-- 跳转到「面單獲取失敗」列表 -->
+        <button
+          class="g-btn g-btn-amber"
+          style="padding: 8px 18px;"
+          title="查看抓面單失敗 / 未生成的運單，可重試"
+          @click="router.push({ name: 'shipping-failed' })"
+        >⚠️ 面單獲取失敗</button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">

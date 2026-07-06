@@ -142,3 +142,32 @@ export function refetchLabel(labelId) {
 export function getGenerateStatus() {
   return http.get('/warehouse/shipping/labels/generate-status')
 }
+
+/**
+ * 列出「面單獲取失敗」的運單 —— 有 HKTV 運單號但抓面單失敗 / 未進面單批次的
+ * consignment(後端已排除 3PL、取消)。支持按取貨日期(HKT)篩選 + 分頁。
+ *
+ * 後端契約：
+ *   GET /api/warehouse/shipping/failed-waybills?page=&page_size=&pickup_date=YYYY-MM-DD
+ *   200 → { items: [...], total, page, page_size, total_pages }
+ *   items 元素：
+ *     { id, sub_order_number, tracking_id, status, store_code,
+ *       pickup_date, error, attempts, last_attempt }
+ */
+export function listFailedWaybills(params = {}) {
+  return http.get('/warehouse/shipping/failed-waybills', { params })
+}
+
+/**
+ * 對選中的失敗運單重新拉 HKTV 面單並生成新的面單批次。
+ * 抓到的進批次(到面單頁下載)、仍抓不到的留回失敗列表。
+ *
+ * 後端契約：
+ *   POST /api/warehouse/shipping/failed-waybills/retry
+ *   Body: { item_ids: [1, 2, ...] }
+ *   200 → { ok: true, label_id, count }   // count = 實際提交的可抓運單數
+ *   400 no_items / bad_ids / no_eligible
+ */
+export function retryFailedWaybills(itemIds) {
+  return http.post('/warehouse/shipping/failed-waybills/retry', { item_ids: itemIds })
+}
