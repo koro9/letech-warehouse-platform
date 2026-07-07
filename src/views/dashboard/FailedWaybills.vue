@@ -5,7 +5,7 @@
  * 業務：面單批次生成(今日/明日)時，部分運單會因 HKTV 抓面單失敗 / 尚未生成
  *      而抓不到 PDF。這些運單不會綁進批次，會滾到這裡。本頁列出所有
  *      「面單獲取失敗」的運單(後端 waybill_fetch_failed=True，已排除 3PL/取消)，
- *      可按取貨日期篩選，單條 / 勾選批量「重新拉取並生成新面單批次」。
+ *      可按發貨日期篩選，單條 / 勾選批量「重新拉取並生成新面單批次」。
  *
  * 後端：le.shipping.label._generate_label_for_items（抓到的進批次、抓不到的留回本列表）
  *      端點見 le_warehouse/controllers/shipping.py
@@ -25,7 +25,7 @@ const totalPages = ref(0)
 const loading = ref(false)
 const retrying = ref(false)           // 批量重試中
 const retryingId = ref(null)          // 單條重試中的 item id
-const pickupFilter = ref('')          // 取貨日期精確過濾(YYYY-MM-DD)，空=全部
+const pickupFilter = ref('')          // 發貨日期精確過濾(YYYY-MM-DD)，空=全部
 const selected = ref(new Set())       // 勾選的 item id
 
 const hasPrev = computed(() => page.value > 1)
@@ -142,7 +142,7 @@ onDeactivated(() => {
     <!-- 工具列：日期過濾 + 批量重試 -->
     <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
       <div class="flex items-center gap-2 flex-wrap">
-        <label class="text-sm text-gray-500">取貨日期</label>
+        <label class="text-sm text-gray-500">發貨日期</label>
         <input
           type="date"
           v-model="pickupFilter"
@@ -184,7 +184,7 @@ onDeactivated(() => {
             <th>HKTV運單號</th>
             <th>狀態</th>
             <th class="text-center">店鋪</th>
-            <th>取貨日期</th>
+            <th>發貨日期</th>
             <th>失敗原因</th>
             <th class="text-center">嘗試</th>
             <th class="text-center">操作</th>
