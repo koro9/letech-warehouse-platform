@@ -247,8 +247,8 @@ async function generateScope(scope) {
       const msg = res.detail || '其他用戶正在生成中'
       showToast(`⚙️ ${msg}`, 'warning')
     } else if (res.status === 'placeholder') {
-      // 没有待生成的 items — 创建了占位 label 作为信号
-      showToast('📭 暫無新運單面單（已記錄占位）', 'warning')
+      // 没有待生成的 items — 不再落占位 label，只提示
+      showToast('📭 暫無新運單面單', 'warning')
     } else if (res.status === 'queued') {
       // 已创建 placeholder label + 投递 queue_job 异步抓 PDF
       const n = res.label?.waybill_count || 0
