@@ -466,6 +466,8 @@ function rowClass(r) {
                      ready      → 真实 PDF 文件名
                      placeholder→ 📭 暫無資料 -->
                 <td class="text-xs">
+                  <span v-if="r.part"
+                        class="inline-block mr-1 px-1.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-semibold align-middle">第 {{ r.part }} 批</span>
                   <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
                     ⏳ 處理中
                     <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
@@ -537,6 +539,8 @@ function rowClass(r) {
               <div class="flex items-start justify-between gap-3 mb-2">
                 <div class="flex-1 min-w-0">
                   <div class="text-xs break-all">
+                    <span v-if="r.part"
+                          class="inline-block mr-1 px-1.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-semibold align-middle">第 {{ r.part }} 批</span>
                     <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
                       ⏳ 處理中
                       <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
@@ -656,6 +660,8 @@ function rowClass(r) {
                 {{ r.outbound_date || '—' }}
               </td>
               <td class="text-xs">
+                <span v-if="r.part"
+                      class="inline-block mr-1 px-1.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-semibold align-middle">第 {{ r.part }} 批</span>
                 <span v-if="rowState(r) === 'processing'" class="text-blue-700 font-semibold">
                   ⏳ 處理中
                   <span v-if="r.progress" class="font-mono ml-1">({{ r.progress }})</span>
