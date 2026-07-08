@@ -109,6 +109,46 @@ const filteredTRs = computed(() => {
 const curGroups = computed(() => activeTransfer.value?.groups_data || [])
 const curGroup = computed(() => curGroups.value[selGrp.value] || null)
 
+// ── 到期日提醒水印 ─────────────────────────────────────────────
+// item 视图空白处印一个灰色大字水印「請檢查日期:DD/MM/YYYY」,提醒工人核对
+// 实物到期日。日期来源同标签(picklist FEFO 端点),保证一致。按 TR 缓存,
+// 拉一次即可;某品项跨多批次会列出多个日期。
+const picklistLabels = ref([])         // 当前 TR 的 picklist labels [{sku,barcode,expDate}]
+const picklistTrId = ref(null)         // picklistLabels 对应的 TR id(缓存键)
+
+async function ensureItemExpiry() {
+  const trId = activeTransfer.value?.id
+  if (!trId) return
+  if (picklistTrId.value === trId) return   // 已拉过该 TR
+  try {
+    const res = await poApi.getTransferPicklist(trId)
+    picklistLabels.value = res?.labels || []
+    picklistTrId.value = trId
+  } catch (e) {
+    // 水印是锦上添花,拉失败静默(不影响揀貨)
+    picklistLabels.value = []
+    picklistTrId.value = trId
+  }
+}
+
+const curGroupExpDates = computed(() => {
+  const g = curGroup.value
+  if (!g) return []
+  const skus = new Set((g.items || []).map(i => i.sku).filter(Boolean))
+  const barcodes = new Set((g.items || []).map(i => i.barcode).filter(Boolean))
+  const dates = []
+  for (const l of picklistLabels.value) {
+    if (!l.expDate) continue
+    if (skus.has(l.sku) || (l.barcode && barcodes.has(l.barcode))) {
+      if (!dates.includes(l.expDate)) dates.push(l.expDate)
+    }
+  }
+  return dates
+})
+
+// 进入 item 视图时按需拉到期日(覆盖 openItem + 扫码直跳 item 两条入口)
+watch(view, (v) => { if (v === 'item') ensureItemExpiry() })
+
 function groupStatus(g) {
   const items = g?.items || []
   const tr = items.reduce((s, i) => s + (parseInt(i.reqQty) || 0), 0)
@@ -1823,6 +1863,21 @@ onBeforeUnmount(() => {
             <div class="h-12 flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200 text-lg font-black text-slate-800">{{ item.reqQty }}</div>
           </div>
         </div>
+      </div>
+
+      <!-- 到期日提醒水印 — 灰色大字,提醒工人核对实物到期日(日期同標籤 FEFO) -->
+      <div
+        v-if="curGroupExpDates.length"
+        class="flex-1 flex flex-col items-center justify-center text-center select-none pointer-events-none py-8"
+        style="color:#cbd5e1;"
+      >
+        <div class="font-black tracking-wider" style="font-size:24px;line-height:1.5;">請檢查日期</div>
+        <div
+          v-for="d in curGroupExpDates"
+          :key="d"
+          class="font-black tracking-wide"
+          style="font-size:40px;line-height:1.35;"
+        >{{ d }}</div>
       </div>
     </div>
 
