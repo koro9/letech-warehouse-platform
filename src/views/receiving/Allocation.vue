@@ -840,7 +840,7 @@ function exportExcel() {
   const header = [
     '總數', '現點', '箱入', '總箱數',
     'Remarks', '板', 'Barcode', 'SKU', 'Name', '有效期',
-    '3PL', 'WS', 'SD4',
+    'WS', '3PL', 'SD4',
     ...extraColNames,
   ]
 
@@ -859,8 +859,8 @@ function exportExcel() {
       r.sku || '',
       r.name || '',
       fmtDates(r.dates),
-      parseInt(r.tpl) || 0,
       parseInt(r.ws) || 0,
+      parseInt(r.tpl) || 0,
       calcSD4(r),
       ...extraColIdxs.map(i => parseInt(r.extra?.[i]?.qty) || 0),
     ])
@@ -872,8 +872,9 @@ function exportExcel() {
         `↳ ${c.sku}`,                        // SKU 缩进
         `${c.name || ''} ${c.label || ''}`.trim(),
         '',                                  // 有效期 空
+        '',                                  // WS 空
         parseInt(c.tpl) || 0,                // 3PL
-        '', '',                              // WS / SD4 空
+        '',                                  // SD4 空
         ...extraColIdxs.map(() => ''),
       ])
     })
@@ -885,7 +886,7 @@ function exportExcel() {
     fs.tQ, fs.tCo,
     '', '', '', '', '',
     '合計', '', '',
-    fs.tT, fs.tW, fs.tS,
+    fs.tW, fs.tT, fs.tS,
     ...extraColIdxs.map(i => fs.tE[i] || 0),
   ]
 
@@ -915,8 +916,8 @@ function exportExcel() {
     { wch: 14 },  // SKU
     { wch: 32 },  // Name
     { wch: 14 },  // 有效期
-    { wch: 8 },   // 3PL
     { wch: 8 },   // WS
+    { wch: 8 },   // 3PL
     { wch: 8 },   // SD4
     ...extraColIdxs.map(() => ({ wch: 10 })),
   ]
@@ -1094,16 +1095,16 @@ onActivated(_autoLoadFromQuery)
         <button :class="chipCls(filterExpiry==='has_date')" @click="filterExpiry='has_date'">有到期日 {{ filterCounts.hasDate }}</button>
       </div>
       <div class="flex items-center gap-1.5">
-        <span class="font-semibold" style="color:#1d4ed8;">3PL</span>
-        <button :class="chipCls(filter3pl==='all')" @click="filter3pl='all'">全部</button>
-        <button :class="chipCls(filter3pl==='has')" @click="filter3pl='has'">有 {{ filterCounts.tplHas }}</button>
-        <button :class="chipCls(filter3pl==='none')" @click="filter3pl='none'">無 {{ filterCounts.tplNone }}</button>
-      </div>
-      <div class="flex items-center gap-1.5">
         <span class="font-semibold" style="color:#065f46;">WS</span>
         <button :class="chipCls(filterWs==='all')" @click="filterWs='all'">全部</button>
         <button :class="chipCls(filterWs==='has')" @click="filterWs='has'">有 {{ filterCounts.wsHas }}</button>
         <button :class="chipCls(filterWs==='none')" @click="filterWs='none'">無 {{ filterCounts.wsNone }}</button>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="font-semibold" style="color:#1d4ed8;">3PL</span>
+        <button :class="chipCls(filter3pl==='all')" @click="filter3pl='all'">全部</button>
+        <button :class="chipCls(filter3pl==='has')" @click="filter3pl='has'">有 {{ filterCounts.tplHas }}</button>
+        <button :class="chipCls(filter3pl==='none')" @click="filter3pl='none'">無 {{ filterCounts.tplNone }}</button>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="font-semibold" style="color:#7c3aed;">SD4</span>
@@ -1138,8 +1139,8 @@ onActivated(_autoLoadFromQuery)
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.sku + 'px' }">SKU<span class="col-resize-handle" @mousedown="startColResize('sku', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.name + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.dates + 'px' }">有效期<span class="col-resize-handle" @mousedown="startColResize('dates', $event)"></span></th>
-                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.ws + 'px' }" style="color:#065f46;background:#ecfdf5;">WS<span class="col-resize-handle" @mousedown="startColResize('ws', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.sd4 + 'px' }" style="color:#5b21b6;background:#f5f3ff;">SD4<span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></th>
                 <th v-for="c in activeExtraCols" :key="c.index" class="px-1.5 py-2 text-center relative" :style="{ width: EXTRA_COL_W + 'px' }" style="background:#fffbeb;">
                   <input
@@ -1221,6 +1222,19 @@ onActivated(_autoLoadFromQuery)
                     <span v-else>—</span>
                   </td>
 
+                  <!-- WS -->
+                  <td class="px-1.5 py-2 text-center" style="background:rgba(236,253,245,.4);">
+                    <input
+                      v-model="row.ws"
+                      @input="markDirty(row)"
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      class="w-14 p-1 border rounded text-center text-xs font-semibold"
+                      style="border-color:#a7f3d0;"
+                    />
+                  </td>
+
                   <!-- 3PL -->
                   <td class="px-1.5 py-2 text-center" style="background:rgba(239,246,255,.4);">
                     <div class="flex items-center justify-center gap-0.5">
@@ -1235,19 +1249,6 @@ onActivated(_autoLoadFromQuery)
                       />
                       <span class="text-[10px] whitespace-nowrap" style="color:#93c5fd;">{{ calcTplBoxes(row) }}</span>
                     </div>
-                  </td>
-
-                  <!-- WS -->
-                  <td class="px-1.5 py-2 text-center" style="background:rgba(236,253,245,.4);">
-                    <input
-                      v-model="row.ws"
-                      @input="markDirty(row)"
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      class="w-14 p-1 border rounded text-center text-xs font-semibold"
-                      style="border-color:#a7f3d0;"
-                    />
                   </td>
 
                   <!-- SD4 (computed) -->
@@ -1401,8 +1402,8 @@ onActivated(_autoLoadFromQuery)
             <div class="grid grid-cols-2 gap-3 text-xs">
               <div class="bg-white rounded border border-gray-200 p-2">
                 <div class="text-[11px] font-bold text-gray-500 mb-1">我的修改</div>
-                <div>3PL: <span class="font-mono">{{ c.your_data.tpl }}</span></div>
                 <div>WS: <span class="font-mono">{{ c.your_data.ws }}</span></div>
+                <div>3PL: <span class="font-mono">{{ c.your_data.tpl }}</span></div>
                 <div v-if="(c.your_data.combos || []).length">
                   Combos: <span class="font-mono">{{ (c.your_data.combos || []).length }}</span> 行
                 </div>
@@ -1415,8 +1416,8 @@ onActivated(_autoLoadFromQuery)
               </div>
               <div class="bg-white rounded border border-gray-200 p-2">
                 <div class="text-[11px] font-bold text-emerald-700 mb-1">伺服器最新</div>
-                <div>3PL: <span class="font-mono">{{ c.server_data.tpl ?? 0 }}</span></div>
                 <div>WS: <span class="font-mono">{{ c.server_data.ws ?? 0 }}</span></div>
+                <div>3PL: <span class="font-mono">{{ c.server_data.tpl ?? 0 }}</span></div>
                 <div v-if="(c.server_data.combos || []).length">
                   Combos: <span class="font-mono">{{ (c.server_data.combos || []).length }}</span> 行
                 </div>
