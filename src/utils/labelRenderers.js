@@ -52,8 +52,8 @@ const LABEL_FONT_FACE =
   `font-display:swap;src:url('${LABEL_FONT_URL}') format('woff2');}`
 // 统一字体栈：内嵌字体优先 → 各平台系统中文字体兜底（生僻字）→ 英文/数字回退
 const LABEL_FONT_STACK =
-  `'${LABEL_FONT_FAMILY}','Microsoft YaHei','PingFang SC','Hiragino Sans GB',` +
-  `'Heiti SC','Noto Sans CJK SC','Noto Sans SC','Microsoft JhengHei','Arial Narrow',sans-serif`
+  `Arial,'Helvetica Neue','${LABEL_FONT_FAMILY}','Microsoft YaHei','PingFang SC',` +
+  `'Hiragino Sans GB','Heiti SC','Noto Sans CJK SC','Noto Sans SC','Microsoft JhengHei',sans-serif`
 
 // 打印前等内嵌字体加载完再 print()，否则字体没下载好会打成空白。
 // 3s 兜底：字体加载失败也照打（回退系统字体），不卡住。
