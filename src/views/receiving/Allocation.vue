@@ -1222,12 +1222,11 @@ onActivated(_autoLoadFromQuery)
                     <span v-else>—</span>
                   </td>
 
-                  <!-- WS -->
+                  <!-- WS — 显示空 + 内部 0:值为 0 时框内留空免得员工删,save/export 走 row.ws (仍是数字 0) -->
                   <td class="px-1.5 py-2 text-center" style="background:rgba(236,253,245,.4);">
                     <input
-                      v-model="row.ws"
-                      @focus="(e) => e.target.select()"
-                      @input="markDirty(row)"
+                      :value="row.ws || ''"
+                      @input="(e) => { row.ws = parseInt(e.target.value) || 0; markDirty(row); }"
                       type="number"
                       min="0"
                       placeholder="0"
@@ -1240,9 +1239,8 @@ onActivated(_autoLoadFromQuery)
                   <td class="px-1.5 py-2 text-center" style="background:rgba(239,246,255,.4);">
                     <div class="flex items-center justify-center gap-0.5">
                       <input
-                        v-model="row.tpl"
-                        @focus="(e) => e.target.select()"
-                        @input="markDirty(row)"
+                        :value="row.tpl || ''"
+                        @input="(e) => { row.tpl = parseInt(e.target.value) || 0; markDirty(row); }"
                         type="number"
                         min="0"
                         placeholder="0"
@@ -1303,9 +1301,8 @@ onActivated(_autoLoadFromQuery)
                   <td class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
                   <td class="px-1.5 py-1.5 text-center" style="background:rgba(239,246,255,.4);">
                     <input
-                      v-model="c.tpl"
-                      @focus="(e) => e.target.select()"
-                      @input="markDirty(row)"
+                      :value="c.tpl || ''"
+                      @input="(e) => { c.tpl = parseInt(e.target.value) || 0; markDirty(row); }"
                       type="number"
                       min="0"
                       placeholder="0"
