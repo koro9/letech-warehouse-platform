@@ -47,13 +47,17 @@ const LABEL_FONT_FAMILY = 'LabelCJK'
 const LABEL_FONT_URL =
   (typeof window !== 'undefined' ? window.location.origin : '') +
   (import.meta.env.BASE_URL || '/') + 'fonts/LabelYaHei.woff2'
+// 两档 @font-face:regular 走系统细体(Arial/PingFang/msyh),bold 走我们上传的 LabelYaHei
+// 子集(它本身是 msyhbd 粗体,拉丁+中文都够粗)。这样细体两平台都清晰,粗体也在两平台都真粗。
 const LABEL_FONT_FACE =
   `@font-face{font-family:'${LABEL_FONT_FAMILY}';font-style:normal;font-weight:400;` +
+  `font-display:swap;src:local('Arial'),local('Helvetica Neue'),local('Microsoft YaHei'),local('PingFang SC');}` +
+  `@font-face{font-family:'${LABEL_FONT_FAMILY}';font-style:normal;font-weight:700;` +
   `font-display:swap;src:url('${LABEL_FONT_URL}') format('woff2');}`
-// 统一字体栈：内嵌字体优先 → 各平台系统中文字体兜底（生僻字）→ 英文/数字回退
+// 统一字体栈:LabelCJK 主家族(按 weight 分派) → 平台中文回退 → sans-serif 兜底
 const LABEL_FONT_STACK =
-  `Arial,'Helvetica Neue','${LABEL_FONT_FAMILY}','Microsoft YaHei','PingFang SC',` +
-  `'Hiragino Sans GB','Heiti SC','Noto Sans CJK SC','Noto Sans SC','Microsoft JhengHei',sans-serif`
+  `'${LABEL_FONT_FAMILY}','PingFang SC','Microsoft YaHei','Hiragino Sans GB',` +
+  `'Heiti SC','Noto Sans CJK SC','Noto Sans SC','Microsoft JhengHei',sans-serif`
 
 // 打印前等内嵌字体加载完再 print()，否则字体没下载好会打成空白。
 // 3s 兜底：字体加载失败也照打（回退系统字体），不卡住。
@@ -62,7 +66,10 @@ function _printWhenFontReady(doc, run) {
   const go = () => { if (!done) { done = true; try { run() } catch (e) { console.error(e) } } }
   try {
     if (doc && doc.fonts && doc.fonts.load) {
-      doc.fonts.load(`16px '${LABEL_FONT_FAMILY}'`).then(() => doc.fonts.ready).then(go).catch(go)
+      Promise.all([
+        doc.fonts.load(`16px '${LABEL_FONT_FAMILY}'`),
+        doc.fonts.load(`bold 16px '${LABEL_FONT_FAMILY}'`),
+      ]).then(() => doc.fonts.ready).then(go).catch(go)
       setTimeout(go, 3000)
     } else {
       go()
