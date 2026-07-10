@@ -1020,7 +1020,6 @@ onActivated(_autoLoadFromQuery)
             @input="newDate = newDate.replace(/[^0-9]/g, '')"
             @keydown.enter="addDate"
             class="g-input flex-1 text-center"
-            style="font-size:15px;"
             placeholder="YYYYMMDD"
           />
           <button class="g-btn g-btn-teal" style="padding:10px 18px;" @click="addDate">新增</button>
@@ -1176,7 +1175,7 @@ onActivated(_autoLoadFromQuery)
           maxlength="50"
           :value="curItem.board || ''"
           placeholder="點貨填寫板/位置,分貨參考"
-          class="flex-1 py-1.5 px-2 rounded-lg text-sm outline-none"
+          class="flex-1 py-1.5 px-2 rounded-lg text-base md:text-sm outline-none"
           style="border:1.5px solid #FBC02D;"
           @input="curItem.board = $event.target.value; markDirty(curSKU)"
           @keydown.enter.prevent="$event.target.blur()"
