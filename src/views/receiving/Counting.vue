@@ -232,6 +232,18 @@ const detailStats = computed(() => {
   }
 })
 
+// 把件数拆成 "N箱" 或 "N箱+M件" 提示 — 让点货员一眼看清对应几箱
+// perBox 无效 / qty=0 / 不够一箱 → 返回空串(不显示 = 附注)
+function boxHint(qty) {
+  const perBox = parseInt(curItem.value?.perBox) || 0
+  const n = parseInt(qty) || 0
+  if (perBox <= 0 || n <= 0) return ''
+  const box = Math.floor(n / perBox)
+  if (box === 0) return ''
+  const rem = n % perBox
+  return rem === 0 ? `${box}箱` : `${box}箱+${rem}件`
+}
+
 // ============================================================
 // 加载 PO
 // ============================================================
@@ -1077,6 +1089,7 @@ onActivated(_autoLoadFromQuery)
           <div v-if="(al.warehouses[w] || 0) > 0" class="wr">
             <span class="text-sm font-bold min-w-[34px]" :style="{ color: whColor(w) }">{{ w }}</span>
             <span class="text-[15px] font-bold text-gray-300 ml-auto">{{ al.warehouses[w] }}</span>
+            <span v-if="boxHint(al.warehouses[w])" class="text-[11px] text-gray-400 ml-1">= {{ boxHint(al.warehouses[w]) }}</span>
             <span class="text-gray-300 mx-1">→</span>
             <span class="wr-pk">
               <input
@@ -1122,6 +1135,7 @@ onActivated(_autoLoadFromQuery)
               <div v-if="(al.warehouses[w] || 0) > 0" class="flex items-center gap-1.5 px-4 py-1.5 border-b border-gray-50">
                 <div class="w-10 shrink-0 text-sm font-bold" :style="{ color: whColor(w) }">{{ w }}</div>
                 <div class="w-8 shrink-0 text-center text-[15px] font-bold text-gray-300">{{ al.warehouses[w] }}</div>
+                <div v-if="boxHint(al.warehouses[w])" class="shrink-0 text-[10px] text-gray-400" :title="`= ${boxHint(al.warehouses[w])}`">= {{ boxHint(al.warehouses[w]) }}</div>
                 <div class="w-4 shrink-0 text-center text-gray-300">→</div>
                 <div v-for="dt in curPk.dates" :key="dt" class="shrink-0 text-center" style="width:82px;">
                   <input
