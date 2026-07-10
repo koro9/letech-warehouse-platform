@@ -66,7 +66,9 @@
     padding: 11px 16px;
     border: 1.5px solid #e0e0e0;
     border-radius: 8px;
-    font-size: 14px;
+    /* font-size 不在这里硬编码 — 交给全局 base 层规则:
+       手机 16px(防 iOS 自动放大),PC 14px。硬编码 14px 会因类优先级
+       覆盖全局规则,导致 iOS Safari focus 时页面被强制放大、右侧内容溢出。 */
     background: #fff;
     transition: border-color .2s;
     outline: none;
