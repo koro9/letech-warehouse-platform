@@ -566,11 +566,83 @@ function missingHtml(typeName) {
 }
 
 // ============================================================
+// renderer 7: pet_food_label — 寵物糧標籤
+// ============================================================
+// 复刻 label.py 的 generate_pet_food_label:版式跟 food_label 完全一样,
+// 只是营养项换成宠物粮粗成分(Crude Protein/Fat/Fibre + Moisture),
+// 下左用 Distributor(BD)代替 Madeby_Prefix, 下右 Best before + Show on package。
+// 右侧成分 = ingredients(pet food 从 AT 列读),**不拼过敏原**。
+function renderPetFoodLabel(d) {
+  if (!d) return { html: missingHtml('寵物糧標籤') }
+
+  const expiryFmt = String(d.expiry_date_format ?? d.expiry_date ?? '').trim()
+  const ingredientText = String(d.ingredients ?? '').trim()
+
+  // 9 行营养表 — 对应 label.py generate_pet_food_label 里 y=37..21 的 label
+  const rows = [
+    ['Servings Per Package:', d.servings_per_package,  37],
+    ['Serving Size:',         d.serving_size,          35],
+    ['Energy:',               d.energy,                33],
+    ['Crude Protein:',        d.crude_protein,         31],
+    ['Crude Fat:',            d.crude_fat,             29],
+    ['Crude Fibre:',          d.crude_fibre,           27],
+    ['Moisture:',             d.moisture,              25],
+    ['Net Content:',          d.net_content_alt,       23],
+    ['Country Of Origin:',    d.country_of_origin,     21],
+  ]
+
+  let nutritionRows = ''
+  for (const [label, val, y] of rows) {
+    nutritionRows += `
+      <div class="label-fit" style="position:absolute; bottom:${y}mm; left:2mm; width:20.5mm; overflow:hidden; white-space:nowrap; display:flex; justify-content:space-between; gap:0.8mm; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH};">
+        <span style="flex:0 0 auto;">${esc(label)}</span>
+        <span style="flex:0 0 auto;">${esc(val ?? '')}</span>
+      </div>
+    `
+  }
+
+  const beforeBlock = `
+      <div style="position:absolute; bottom:5.5mm; left:50mm; font-size:${DEFAULT_FZ};">Best before(${esc(expiryFmt || 'Date Format')}):</div>
+      <div style="position:absolute; bottom:2.5mm; left:50mm; font-size:${DEFAULT_FZ};">Show on package</div>
+    `
+
+  const lines = `
+    <div style="position:absolute; bottom:43mm; left:0; width:${LABEL_W}mm; height:1.5px; background:#000;"></div>
+    <div style="position:absolute; bottom:8.8mm; left:0; width:${LABEL_W}mm; height:1.5px; background:#000;"></div>
+    <div style="position:absolute; bottom:8.8mm; left:24.5mm; width:1.5px; height:${43 - 8.8}mm; background:#000;"></div>
+  `
+
+  return {
+    html: `
+      ${lines}
+      <!-- 上层 -->
+      <div style="position:absolute; bottom:48mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.barcode ?? '')}</div>
+      <div style="position:absolute; bottom:45mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.description ?? '')}</div>
+
+      <!-- 中左 — Nutrition 标题 + 9 行营养表 -->
+      <div style="position:absolute; bottom:40mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">Nutrition Information</div>
+      ${nutritionRows}
+
+      <!-- 中右 — Ingredients(AT) -->
+      <div style="position:absolute; top:10mm; left:26.5mm; width:40mm; max-height:27.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word; word-break:break-word;">${esc(ingredientText)}</div>
+
+      <!-- 下左 — Distributor(BD) + Storage(BE) -->
+      <div style="position:absolute; top:42.5mm; left:2mm; width:46mm; max-height:4mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.distributor ?? '')}</div>
+      <div style="position:absolute; bottom:2.5mm; left:2mm; width:46mm; max-height:4mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.storage ?? '')}</div>
+
+      <!-- 下右 — Best before -->
+      ${beforeBlock}
+    `,
+  }
+}
+
+// ============================================================
 // renderer 总表 — 按 render_type 派发
 // ============================================================
 const RENDERERS = {
   food_label:         renderFoodLabel,
   health_food:        renderHealthFoodLabel,
+  pet_food_label:     renderPetFoodLabel,
   special_label:      renderSpecialLabel,
   ordinary_label:     renderOrdinaryLabel,
   jelly_warning:      renderJellyWarning,
@@ -580,6 +652,7 @@ const RENDERERS = {
 const TYPE_NAME_ZH = {
   food_label:         '食品營養標籤',
   health_food:        '保健食品標籤',
+  pet_food_label:     '寵物糧標籤',
   special_label:      '特殊標籤',
   ordinary_label:     '普通標籤',
   jelly_warning:      '果凍警告貼紙',

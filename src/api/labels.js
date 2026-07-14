@@ -8,9 +8,9 @@ import http from './http'
  *   - le.label.item.master (le_warehouse) — Excel 上传的标签扩展数据
  *   - 两表通过共享 barcode 关联（无 FK），lookup 时按值 join
  *
- * 5 种 renderer 跟后端 render_type 对应：
+ * 6 种 renderer 跟后端 render_type 对应：
  *   barcode (任何商品都打)
- *   food_label / health_food / special_label / ordinary_label (来自 master.render_type)
+ *   food_label / health_food / pet_food_label / special_label / ordinary_label (来自 master.render_type)
  */
 
 /**
@@ -53,7 +53,7 @@ export function lookupByBarcode(barcode) {
  * @returns 200 {
  *   total, inserted, skipped_no_barcode,
  *   duration_ms,
- *   by_render_type: { food_label, health_food, special_label, ordinary_label }
+ *   by_render_type: { food_label, health_food, pet_food_label, special_label, ordinary_label }
  * }
  *   400 invalid_file / missing_barcode_column / parse_failed / no_valid_rows
  *   403 not_authorized
