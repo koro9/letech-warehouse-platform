@@ -1299,6 +1299,9 @@ onActivated(_autoLoadFromQuery)
                   </td>
                   <td class="px-2.5 py-1.5 text-[11px] text-gray-500">{{ c.name }} {{ c.label }}</td>
                   <td class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
+                  <!-- WS 位:combo 只走 3PL,WS 恒空 -->
+                  <td class="px-1.5 py-1.5 text-gray-300 text-center">—</td>
+                  <!-- 3PL 位:combo 的实际录入 -->
                   <td class="px-1.5 py-1.5 text-center" style="background:rgba(239,246,255,.4);">
                     <input
                       :value="c.tpl || ''"
@@ -1310,7 +1313,7 @@ onActivated(_autoLoadFromQuery)
                       style="border-color:#bfdbfe;"
                     />
                   </td>
-                  <td class="px-1.5 py-1.5 text-gray-300 text-center">—</td>
+                  <!-- SD4 位 -->
                   <td class="px-1.5 py-1.5 text-gray-300 text-center">—</td>
                   <td v-for="ec in activeExtraCols" :key="ec.index" class="px-1 py-1.5 text-gray-300 text-center">—</td>
                   <td v-if="canAddCol"></td>
