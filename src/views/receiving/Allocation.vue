@@ -1346,8 +1346,8 @@ onActivated(_autoLoadFromQuery)
                 <td class="px-2.5 py-2">合計</td><!-- SKU -->
                 <td></td><!-- Name -->
                 <td></td><!-- 有效期 -->
-                <td class="px-2.5 py-2 text-center" style="color:#1d4ed8;background:#eff6ff;">{{ footerStats.tT }}</td>
                 <td class="px-2.5 py-2 text-center" style="color:#065f46;background:#ecfdf5;">{{ footerStats.tW }}</td>
+                <td class="px-2.5 py-2 text-center" style="color:#1d4ed8;background:#eff6ff;">{{ footerStats.tT }}</td>
                 <td class="px-2.5 py-2 text-center" style="background:#f5f3ff;">
                   <span class="inline-block min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold" :class="sd4Class(footerStats.tS)">{{ footerStats.tS }}</span>
                 </td>
