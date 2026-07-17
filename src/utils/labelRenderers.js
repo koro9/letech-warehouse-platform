@@ -591,10 +591,15 @@ function renderPetFoodLabel(d) {
     ['Country Of Origin:',    d.country_of_origin,     21],
   ]
 
+  // pet 标签行 label 都比较长("Servings Per Package:","Country Of Origin:")
+  // 配上"6g x 12pcs"这种长值容易溢出。宽度从 20.5mm 扩到 23mm(占用右侧
+  // 富余空间,竖分割线同步右移到 25.5mm 见 lines 区块)。
+  // 常见组合直接就能装下;真的过长会触发 .label-fit 逐步縮字號(0.5px 一階,
+  // 下限 4px)兜底。space-between 保持"label 靠左、value 靠右"视觉。
   let nutritionRows = ''
   for (const [label, val, y] of rows) {
     nutritionRows += `
-      <div class="label-fit" style="position:absolute; bottom:${y}mm; left:2mm; width:20.5mm; overflow:hidden; white-space:nowrap; display:flex; justify-content:space-between; gap:0.8mm; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH};">
+      <div class="label-fit" style="position:absolute; bottom:${y}mm; left:2mm; width:23mm; overflow:hidden; white-space:nowrap; display:flex; justify-content:space-between; gap:0.8mm; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH};">
         <span style="flex:0 0 auto;">${esc(label)}</span>
         <span style="flex:0 0 auto;">${esc(val ?? '')}</span>
       </div>
@@ -606,10 +611,11 @@ function renderPetFoodLabel(d) {
       <div style="position:absolute; bottom:2.5mm; left:50mm; font-size:${DEFAULT_FZ};">Show on package</div>
     `
 
+  // 竖分割线跟营养列加宽而右移(原 24.5mm → 25.5mm),避免叠在营养表上
   const lines = `
     <div style="position:absolute; bottom:43mm; left:0; width:${LABEL_W}mm; height:1.5px; background:#000;"></div>
     <div style="position:absolute; bottom:8.8mm; left:0; width:${LABEL_W}mm; height:1.5px; background:#000;"></div>
-    <div style="position:absolute; bottom:8.8mm; left:24.5mm; width:1.5px; height:${43 - 8.8}mm; background:#000;"></div>
+    <div style="position:absolute; bottom:8.8mm; left:25.5mm; width:1.5px; height:${43 - 8.8}mm; background:#000;"></div>
   `
 
   return {
