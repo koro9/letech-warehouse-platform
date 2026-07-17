@@ -1,14 +1,16 @@
 <script setup>
 /**
- * 面單獲取失敗 — 出貨作業中心 / Dashboard 系統
+ * 待生成面單 — 出貨作業中心 / Dashboard 系統
  *
- * 業務：面單批次生成(今日/明日)時，部分運單會因 HKTV 抓面單失敗 / 尚未生成
- *      而抓不到 PDF。這些運單不會綁進批次，會滾到這裡。本頁列出所有
- *      「面單獲取失敗」的運單(後端 waybill_fetch_failed=True，已排除 3PL/取消)，
- *      可按發貨日期篩選，單條 / 勾選批量「重新拉取並生成新面單批次」。
+ * 業務：列出「某個發貨日期還沒進面單批次」的所有運單(≈ Dashboard 已建立口徑)。
+ *      進入頁默認展示今日,可按日期切換到明日或往前查漏。
+ *      勾選後可批量生成新面單批次(有 tracking 的會抓 PDF,沒 tracking 的
+ *      會被後端 retry 自動跳過留在本頁)。
  *
- * 後端：le.shipping.label._generate_label_for_items（抓到的進批次、抓不到的留回本列表）
- *      端點見 le_warehouse/controllers/shipping.py
+ * 後端 domain(list_failed_waybills 內):
+ *   shipping_label_id 為空 + 非 3PL + hktv_raw_status 不含 CANCEL
+ *
+ * URL 保留原 /failed-waybills 不動,只是內部語義擴大;函數名同理。
  */
 import { ref, computed, onActivated, onDeactivated } from 'vue'
 import { useRouter } from 'vue-router'
@@ -23,9 +25,14 @@ const total = ref(0)
 const page = ref(1)
 const totalPages = ref(0)
 const loading = ref(false)
-const retrying = ref(false)           // 批量重試中
-const retryingId = ref(null)          // 單條重試中的 item id
-const pickupFilter = ref('')          // 發貨日期精確過濾(YYYY-MM-DD)，空=全部
+const retrying = ref(false)           // 批量生成中
+const retryingId = ref(null)          // 單條生成中的 item id
+// 發貨日期預設為今日 HKT(YYYY-MM-DD)。用戶要看歷史/明日自己切換,清空 = 全部
+const pickupFilter = ref((() => {
+  const now = new Date()
+  const hkt = new Date(now.getTime() + (8 * 60 - now.getTimezoneOffset()) * 60000)
+  return hkt.toISOString().slice(0, 10)
+})())
 const selected = ref(new Set())       // 勾選的 item id
 
 const hasPrev = computed(() => page.value > 1)
@@ -91,16 +98,16 @@ async function retry(ids, singleId = null) {
   try {
     const res = await shipping.retryFailedWaybills(ids)
     showToast(
-      `🔄 已提交 ${res.count} 張運單，正在生成新面單批次…完成後到【面單】下載`,
+      `⚡ 已提交 ${res.count} 張運單,正在生成新面單批次…完成後到【面單】下載`,
       'success')
     selected.value = new Set()
-    // 重新載入(這些 item 已綁到新批次、暫時離開失敗列表)
+    // 重新載入(這些 item 已綁到新批次、離開本列表)
     await load(page.value)
   } catch (err) {
     const code = err.response?.data?.error
     const msg = code === 'no_eligible'
-      ? '選中的運單沒有可重新抓取的項(需有運單號、未在批次中、非取消)'
-      : (code || '重試失敗')
+      ? '選中的運單沒有可生成面單的項(需有 HKTV 運單號、未在批次中、非取消)'
+      : (code || '生成失敗')
     showToast(msg, 'error')
   } finally {
     retrying.value = false
@@ -126,10 +133,10 @@ onDeactivated(() => {
     <!-- 標題 + 返回 -->
     <div class="flex items-center justify-between mb-4 sm:mb-5 flex-wrap gap-2 pb-3 border-b border-gray-200">
       <div class="flex items-center gap-2">
-        <span class="text-xl sm:text-2xl">⚠️</span>
-        <h2 class="text-base sm:text-lg font-bold text-gray-800">面單獲取失敗</h2>
+        <span class="text-xl sm:text-2xl">📝</span>
+        <h2 class="text-base sm:text-lg font-bold text-gray-800">待生成面單</h2>
         <span class="hidden sm:inline text-xs text-gray-400 ml-2">
-          抓面單失敗 / 未生成、未進批次的運單；勾選後可批量重試生成新批次
+          未進面單批次的運單;勾選後可批量生成新批次
         </span>
       </div>
       <button
@@ -168,7 +175,7 @@ onDeactivated(() => {
         @click="retrySelected"
       >
         <span v-if="retrying">⏳ 提交中…</span>
-        <span v-else>🔄 重試勾選（{{ selectedCount }}）</span>
+        <span v-else>⚡ 批量生成({{ selectedCount }})</span>
       </button>
     </div>
 
@@ -185,7 +192,7 @@ onDeactivated(() => {
             <th>狀態</th>
             <th class="text-center">店鋪</th>
             <th>發貨日期</th>
-            <th>失敗原因</th>
+            <th>狀態備註</th>
             <th class="text-center">嘗試</th>
             <th class="text-center">操作</th>
           </tr>
@@ -193,7 +200,7 @@ onDeactivated(() => {
         <tbody>
           <tr v-if="!loading && items.length === 0">
             <td colspan="9" class="text-center text-gray-400 py-10">
-              🎉 暫無面單獲取失敗的運單
+              🎉 該日期所有運單已進面單批次
             </td>
           </tr>
           <tr v-for="r in items" :key="r.id"
@@ -206,7 +213,7 @@ onDeactivated(() => {
             <td class="text-xs text-gray-600">{{ r.status || '—' }}</td>
             <td class="text-center text-xs">{{ r.store_code || '—' }}</td>
             <td class="text-xs text-gray-500">{{ r.pickup_date || '—' }}</td>
-            <td class="text-xs text-red-600" :title="r.error">
+            <td class="text-xs" :class="r.error ? 'text-red-600' : 'text-gray-400'" :title="r.error">
               {{ r.error || '尚未抓取 / 未生成' }}
             </td>
             <td class="text-center text-xs text-gray-500">{{ r.attempts }}</td>
@@ -218,7 +225,7 @@ onDeactivated(() => {
                 @click="retry([r.id], r.id)"
               >
                 <span v-if="retryingId === r.id">⏳</span>
-                <span v-else>🔄 重試</span>
+                <span v-else>⚡ 生成</span>
               </button>
             </td>
           </tr>

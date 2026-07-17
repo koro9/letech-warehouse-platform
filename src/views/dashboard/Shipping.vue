@@ -404,13 +404,13 @@ function rowClass(r) {
           <h2 class="text-base sm:text-lg font-bold text-gray-800">待出庫面單</h2>
           <span class="hidden sm:inline text-xs text-gray-400 ml-2">點擊「⚡ 今日 / ⚡ 明日」按鈕生成</span>
         </div>
-        <!-- 跳转到「面單獲取失敗」列表 -->
+        <!-- 跳转到「待生成面單」列表(某日還沒進面單批次的所有運單) -->
         <button
           class="g-btn g-btn-amber"
           style="padding: 8px 18px;"
-          title="查看抓面單失敗 / 未生成的運單，可重試"
+          title="查看某日還沒進面單批次的所有運單,可批量生成"
           @click="router.push({ name: 'shipping-failed' })"
-        >⚠️ 面單獲取失敗</button>
+        >📝 待生成面單</button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
