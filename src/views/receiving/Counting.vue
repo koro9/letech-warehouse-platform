@@ -1123,6 +1123,12 @@ onActivated(_autoLoadFromQuery)
         <template v-for="w in whKeysOf(al)" :key="w">
           <div v-if="(al.warehouses[w] || 0) > 0" class="wr">
             <span class="text-sm font-bold min-w-[34px]" :style="{ color: whColor(w) }">{{ w }}</span>
+            <!-- 標籤徽章(食品/保健/蟲蟲/滅火筒/果凍警告)重複在每個 wh 行,提醒倉庫員特殊處理 -->
+            <span v-for="(b, i) in labelTypeBadges" :key="i"
+                  class="inline-block px-1.5 py-0 rounded text-[10px] font-bold whitespace-nowrap ml-1"
+                  :style="b.style">
+              {{ b.label }}
+            </span>
             <span class="text-[15px] font-bold text-gray-300 ml-auto">{{ al.warehouses[w] }}</span>
             <span v-if="boxHint(al.warehouses[w])" class="text-[11px] text-gray-400 ml-1">= {{ boxHint(al.warehouses[w]) }}</span>
             <span class="text-gray-300 mx-1">→</span>
@@ -1169,6 +1175,12 @@ onActivated(_autoLoadFromQuery)
             <template v-for="w in whKeysOf(al)" :key="w">
               <div v-if="(al.warehouses[w] || 0) > 0" class="flex items-center gap-1.5 px-4 py-1.5 border-b border-gray-50">
                 <div class="w-10 shrink-0 text-sm font-bold" :style="{ color: whColor(w) }">{{ w }}</div>
+                <!-- 標籤徽章:提醒倉庫員特殊處理 -->
+                <span v-for="(b, i) in labelTypeBadges" :key="i"
+                      class="shrink-0 inline-block px-1.5 py-0 rounded text-[10px] font-bold whitespace-nowrap"
+                      :style="b.style">
+                  {{ b.label }}
+                </span>
                 <div class="w-8 shrink-0 text-center text-[15px] font-bold text-gray-300">{{ al.warehouses[w] }}</div>
                 <div v-if="boxHint(al.warehouses[w])" class="shrink-0 text-[10px] text-gray-400" :title="`= ${boxHint(al.warehouses[w])}`">= {{ boxHint(al.warehouses[w]) }}</div>
                 <div class="w-4 shrink-0 text-center text-gray-300">→</div>
