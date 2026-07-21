@@ -1044,8 +1044,25 @@ onActivated(_autoLoadFromQuery)
 
       <!-- Combo 提示横幅 -->
       <template v-if="al.type === 'combo'">
-        <div class="px-4 py-2 text-xs font-semibold border-b border-gray-100" style="color:#7C4DFF;background:#fcfbff;">
-          🔗 {{ curItem.name }} ×{{ al.mult }}
+        <!-- 組成一覽:列出父 BOM 所有子件(不只當前 SKU),多子件 combo 必要 -->
+        <div class="px-4 py-2 text-xs border-b border-gray-100" style="color:#7C4DFF;background:#fcfbff;">
+          <div class="font-semibold mb-1">🔗 Repack 組成:</div>
+          <template v-if="al.components && al.components.length">
+            <div v-for="comp in al.components"
+                 :key="comp.sku"
+                 class="pl-4 flex justify-between items-center py-0.5 text-[11px]"
+                 :class="comp.is_current ? 'font-bold' : ''"
+                 :style="{ color: comp.is_current ? '#7B1FA2' : '#9E9E9E' }">
+              <span class="truncate mr-2">
+                • {{ comp.name || comp.sku }}
+                <span v-if="comp.is_current" class="ml-1 text-[10px] font-semibold" style="color:#E65100;">(當前)</span>
+              </span>
+              <span class="font-mono shrink-0">×{{ comp.mult }}</span>
+            </div>
+          </template>
+          <div v-else class="pl-4 text-[11px]">
+            • {{ curItem.name }} ×{{ al.mult }}
+          </div>
         </div>
         <div class="border-b border-gray-100 overflow-hidden">
           <div
@@ -1075,7 +1092,26 @@ onActivated(_autoLoadFromQuery)
                 {{ whSum(al) * al.mult }}
               </span>
             </div>
-            <div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-semibold" style="background:#FFF8E1;color:#E65100;border:1px solid #FFD54F;">
+            <!-- 多子件 combo:列出每個子件所需總量,提示員工去對應 SKU 頁面點 -->
+            <div v-if="al.components && al.components.length > 1"
+                 class="px-2.5 py-1.5 rounded text-[11px]" style="background:#FFF8E1;border:1px solid #FFD54F;">
+              <div class="font-semibold mb-1" style="color:#E65100;">
+                ⚠️ 造 {{ whSum(al) }} 件 <span class="font-mono">{{ al.label }}</span> 需:
+              </div>
+              <div v-for="comp in al.components"
+                   :key="comp.sku"
+                   class="flex justify-between items-center pl-3 py-0.5"
+                   :class="comp.is_current ? 'font-bold' : ''"
+                   :style="{ color: comp.is_current ? '#E65100' : '#666' }">
+                <span class="truncate mr-2">
+                  • {{ comp.sku }}
+                  <span v-if="!comp.is_current" class="ml-1 text-[10px]" style="color:#9E9E9E;">(去該 SKU 頁面錄)</span>
+                </span>
+                <span class="font-mono shrink-0">{{ whSum(al) * comp.mult }} 件</span>
+              </div>
+            </div>
+            <!-- 單子件 combo 保留原簡潔提示 -->
+            <div v-else class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-semibold" style="background:#FFF8E1;color:#E65100;border:1px solid #FFD54F;">
               ⚠️ 請拿 <strong class="mx-1">{{ whSum(al) * al.mult }} 件</strong>「{{ curItem.name }}」進行 Repack
             </div>
           </div>
