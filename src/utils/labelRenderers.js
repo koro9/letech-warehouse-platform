@@ -632,9 +632,11 @@ function renderPetFoodLabel(d) {
       <!-- 中右 — Ingredients(AT) -->
       <div style="position:absolute; top:10mm; left:26.5mm; width:40mm; max-height:27.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word; word-break:break-word;">${esc(ingredientText)}</div>
 
-      <!-- 下左 — Distributor(BD) + Storage(BE) -->
-      <div style="position:absolute; top:42.5mm; left:2mm; width:46mm; max-height:4mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.distributor ?? '')}</div>
-      <div style="position:absolute; bottom:2.5mm; left:2mm; width:46mm; max-height:4mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.storage ?? '')}</div>
+      <!-- 下左 — Distributor(BD) 在上、Storage(BE) 在下,各分一半空间
+           底部横线在 bottom:8.8mm,可用高度 ~8mm。均分成两段,
+           label-fit 让长文本自动缩字号,不会再重叠。 -->
+      <div class="label-fit" style="position:absolute; bottom:5mm; left:2mm; width:46mm; max-height:3.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.distributor ?? '')}</div>
+      <div class="label-fit" style="position:absolute; bottom:1mm; left:2mm; width:46mm; max-height:3.5mm; overflow:hidden; font-size:${DEFAULT_FZ}; line-height:${DEFAULT_LH}; word-wrap:break-word;">${esc(d.storage ?? '')}</div>
 
       <!-- 下右 — Best before -->
       ${beforeBlock}
