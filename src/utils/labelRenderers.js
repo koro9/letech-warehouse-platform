@@ -275,7 +275,8 @@ function renderFoodLabel(d) {
       ${lines}
       <!-- 上层 -->
       <div style="position:absolute; bottom:48mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.barcode ?? '')}</div>
-      <div style="position:absolute; bottom:45mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.description ?? '')}</div>
+      <!-- description 强制单行(nowrap + label-fit 自动縮字號),避免長品名折行擠壓下方 Nutrition 區域 -->
+      <div class="label-fit" style="position:absolute; bottom:45mm; left:2mm; width:66mm; max-height:2.5mm; overflow:hidden; white-space:nowrap; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.description ?? '')}</div>
 
       <!-- 中左 — Nutrition 标题 + 10 行表 -->
       <div style="position:absolute; bottom:40mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">Nutrition Information</div>
@@ -623,7 +624,8 @@ function renderPetFoodLabel(d) {
       ${lines}
       <!-- 上层 -->
       <div style="position:absolute; bottom:48mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.barcode ?? '')}</div>
-      <div style="position:absolute; bottom:45mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.description ?? '')}</div>
+      <!-- description 强制单行(nowrap + label-fit 自动縮字號),避免長品名折行擠壓下方 Nutrition 區域 -->
+      <div class="label-fit" style="position:absolute; bottom:45mm; left:2mm; width:66mm; max-height:2.5mm; overflow:hidden; white-space:nowrap; font-size:${DEFAULT_FZ}; font-weight:bold;">${esc(d.description ?? '')}</div>
 
       <!-- 中左 — Nutrition 标题 + 9 行营养表 -->
       <div style="position:absolute; bottom:40mm; left:2mm; font-size:${DEFAULT_FZ}; font-weight:bold;">Nutrition Information</div>
