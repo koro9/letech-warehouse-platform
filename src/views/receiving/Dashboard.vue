@@ -18,9 +18,20 @@ const poList = ref([])
 const searchQ = ref('')
 const statusFilter = ref('all')          // all | red(未開始) | orange(點貨中) | green(已點齊)
 const sortBy = ref('eta_desc')           // eta_desc(最新置頂·默認) | eta_asc | po_desc
+const taobaoFilter = ref('hide')         // hide(默認·隱藏淘寶) | all | only (2026-08-19 用户 spec)
+
+function isTaobao(po) {
+  const n = (po.partner_name || '').toLowerCase()
+  return n.includes('taobao') || n.includes('淘寶') || n.includes('淘宝')
+}
 
 const displayList = computed(() => {
   let list = poList.value
+  if (taobaoFilter.value === 'hide') {
+    list = list.filter(po => !isTaobao(po))
+  } else if (taobaoFilter.value === 'only') {
+    list = list.filter(isTaobao)
+  }
   const q = searchQ.value.trim().toLowerCase()
   if (q) {
     list = list.filter(po =>
@@ -198,7 +209,12 @@ function progressText(po) {
         <option value="eta_asc">ETA 舊 → 新</option>
         <option value="po_desc">PO 號 新 → 舊</option>
       </select>
-      <span v-if="searchQ || statusFilter !== 'all'" class="text-xs text-gray-400">
+      <select v-model="taobaoFilter" class="g-input text-sm py-1.5 px-2">
+        <option value="hide">隱藏淘寶(默認)</option>
+        <option value="all">顯示全部</option>
+        <option value="only">只看淘寶</option>
+      </select>
+      <span v-if="displayList.length !== poList.length" class="text-xs text-gray-400">
         顯示 {{ displayList.length }} / {{ poList.length }} 張
       </span>
     </div>
@@ -212,7 +228,7 @@ function progressText(po) {
     <div v-else-if="displayList.length === 0" class="text-center py-12 text-gray-400">
       <div class="text-3xl mb-2">{{ tab === 'pending' ? '📦' : '✅' }}</div>
       <p v-if="poList.length === 0">{{ tab === 'pending' ? '暫無待收 PO' : '暫無已完成 PO' }}</p>
-      <p v-else>冇符合篩選嘅 PO(共 {{ poList.length }} 張)— 試下清走搜尋/狀態篩選</p>
+      <p v-else>冇符合篩選嘅 PO(共 {{ poList.length }} 張)— 試下清走搜尋/狀態/淘寶篩選</p>
     </div>
 
     <!-- PO 列表 -->
