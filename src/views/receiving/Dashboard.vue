@@ -14,6 +14,37 @@ const tab = ref('pending')
 const loading = ref(false)
 const poList = ref([])
 
+// 2026-08-18 用户 spec: 加篩選 + 最新置頂排序(舊 PO 混住好亂)
+const searchQ = ref('')
+const statusFilter = ref('all')          // all | red(未開始) | orange(點貨中) | green(已點齊)
+const sortBy = ref('eta_desc')           // eta_desc(最新置頂·默認) | eta_asc | po_desc
+
+const displayList = computed(() => {
+  let list = poList.value
+  const q = searchQ.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter(po =>
+      (po.po_name || '').toLowerCase().includes(q)
+      || (po.partner_name || '').toLowerCase().includes(q)
+      || (po.description || '').toLowerCase().includes(q))
+  }
+  if (statusFilter.value !== 'all') {
+    list = list.filter(po => (po.counting_status || 'red') === statusFilter.value)
+  }
+  const mode = sortBy.value
+  return [...list].sort((a, b) => {
+    if (mode === 'po_desc') return (b.po_name || '').localeCompare(a.po_name || '')
+    const av = a.date_planned || ''
+    const bv = b.date_planned || ''
+    if (av !== bv) {
+      if (!av) return 1                  // 冇 ETA 沉底
+      if (!bv) return -1
+      return mode === 'eta_desc' ? bv.localeCompare(av) : av.localeCompare(bv)
+    }
+    return (b.po_name || '').localeCompare(a.po_name || '')   // 同日 ETA → PO 號新嘅先
+  })
+})
+
 // 問題9：「形容 / 實際收貨時間」改存服務器（以前只存瀏覽器 localStorage，別人看唔到、忘 save 就丟）。
 //   - 兩個欄直接綁在 po 物件上（po.description / po.actual_date，隨列表由後端帶來）
 //   - 在欄位失焦(blur)時自動寫服務器 → 員工不用記得按 save，也不會丟
@@ -148,15 +179,40 @@ function progressText(po) {
       </button>
     </div>
 
+    <!-- 篩選 / 排序 (2026-08-18) -->
+    <div class="flex flex-wrap items-center gap-2">
+      <input
+        v-model="searchQ"
+        type="search"
+        placeholder="搜 PO 號 / Supplier / 形容…"
+        class="g-input text-sm py-1.5 px-3 w-64"
+      />
+      <select v-model="statusFilter" class="g-input text-sm py-1.5 px-2">
+        <option value="all">全部狀態</option>
+        <option value="red">未開始</option>
+        <option value="orange">點貨中</option>
+        <option value="green">已點齊</option>
+      </select>
+      <select v-model="sortBy" class="g-input text-sm py-1.5 px-2">
+        <option value="eta_desc">ETA 新 → 舊(最新置頂)</option>
+        <option value="eta_asc">ETA 舊 → 新</option>
+        <option value="po_desc">PO 號 新 → 舊</option>
+      </select>
+      <span v-if="searchQ || statusFilter !== 'all'" class="text-xs text-gray-400">
+        顯示 {{ displayList.length }} / {{ poList.length }} 張
+      </span>
+    </div>
+
     <!-- Loading -->
     <div v-if="loading && poList.length === 0" class="text-center py-12 text-gray-400">
       載入中…
     </div>
 
     <!-- 空狀態 -->
-    <div v-else-if="poList.length === 0" class="text-center py-12 text-gray-400">
+    <div v-else-if="displayList.length === 0" class="text-center py-12 text-gray-400">
       <div class="text-3xl mb-2">{{ tab === 'pending' ? '📦' : '✅' }}</div>
-      <p>{{ tab === 'pending' ? '暫無待收 PO' : '暫無已完成 PO' }}</p>
+      <p v-if="poList.length === 0">{{ tab === 'pending' ? '暫無待收 PO' : '暫無已完成 PO' }}</p>
+      <p v-else>冇符合篩選嘅 PO(共 {{ poList.length }} 張)— 試下清走搜尋/狀態篩選</p>
     </div>
 
     <!-- PO 列表 -->
@@ -176,7 +232,7 @@ function progressText(po) {
         </thead>
         <tbody>
           <tr
-            v-for="po in poList"
+            v-for="po in displayList"
             :key="po.po_id"
             class="cursor-pointer"
             @click="goToCounting(po)"
