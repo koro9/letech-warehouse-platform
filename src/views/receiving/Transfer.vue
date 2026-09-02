@@ -785,7 +785,7 @@ watch(autoRefresh, (v) => {
 //
 //   結果：
 //   - 0 match → 錯誤提示
-//   - 1 match → _proceedWithMatch（補貨自動填 qty+autoprint，PO 跳 item view）
+//   - 1 match → _proceedWithMatch（跳 item view 人手錄入數量，補貨/PO 一致）
 //   - 多 match → 彈 SKU choice modal 等員工揀
 function scanBC() {
   const q = bcQuery.value.trim()
@@ -834,24 +834,19 @@ function scanBC() {
   skuChoiceModal.open = true
 }
 
-// 處理一個 scan 配對結果
-//   補貨 TR (is_replenishment): 自動將 pickQty 填滿 reqQty + 觸發 autoprint
-//   PO TR: 跳去 item view 讓員工人手錄入數量（保留原流程）
+// 處理一個 scan 配對結果 → 一律跳去 item view 讓員工人手錄入數量
+//
+// 2026-09-02 Koro 定:補貨 TR 原本係「自動將 pickQty 填滿 reqQty + 觸發
+// autoprint」,倉庫反映「掃 barcode 直接幫我填滿數量,而唔係進入 sku 裡面
+// 嘅畫面」—— 員工要自己睇實物填數,唔應該系統代填。現改成同 PO TR 一致。
+//
+// 連帶影響(已知,Koro 決定接受):掃碼唔再即刻印標籤。item view 裡面
+// 打印係 Tab 觸發(見模板 @keydown.tab.exact),手機無 Tab 鍵 → 手機暫時
+// 唔印標籤,需要時點 item view 裡嘅「🖨️ 重印標籤」按鈕。
 function _proceedWithMatch({ gi, ii, item }) {
   const g = curGroups.value[gi]
-  if (activeTransfer.value?.is_replenishment) {
-    // 補貨：自動填數 + 列印
-    const req = parseInt(item.reqQty) || 0
-    if (req > 0) {
-      item.pickQty = req
-      dirty.value = true
-    }
-    onPickQtyBlur(item)   // 觸發 Bartender / fallback 印 label
-    showToast(`✓ ${item.sku} 已填入 ${req} 件並送印標籤`, 'success')
-  } else {
-    showToast(`✓ 找到: ${g?.displayName || item.sku}`, 'success')
-    setTimeout(() => { selGrp.value = gi; view.value = 'item' }, 400)
-  }
+  showToast(`✓ 找到: ${g?.displayName || item.sku}`, 'success')
+  setTimeout(() => { selGrp.value = gi; view.value = 'item' }, 400)
 }
 
 // SKU choice modal: 員工揀邊個 SKU
