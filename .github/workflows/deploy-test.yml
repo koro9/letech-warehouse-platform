@@ -1,0 +1,25 @@
+name: Deploy to Test Server
+
+# 跟 letech (Odoo 仓库) 用同一套测试机 secrets：TEST_EC2_HOST / TEST_EC2_USER / TEST_EC2_SSH_KEY
+# 服务器的 update-vue.sh 会自己 git pull test 分支 + docker compose 重建 nginx 镜像
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.TEST_EC2_HOST }}
+          username: ${{ secrets.TEST_EC2_USER }}
+          key: ${{ secrets.TEST_EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -e
+            cd /opt/odoo19-deploy/scripts
+            bash update-vue.sh test
