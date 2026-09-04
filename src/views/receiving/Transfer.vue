@@ -1858,6 +1858,34 @@ onBeforeUnmount(() => {
             <div class="h-12 flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200 text-lg font-black text-slate-800">{{ item.reqQty }}</div>
           </div>
         </div>
+
+        <!-- 組合裝:列出組件 SKU / 名稱 / 條碼(只核對,不用填數量) -->
+        <div
+          v-if="item.is_bom && (item.components || []).length"
+          class="mt-3 rounded-xl border-2 p-3"
+          style="background:#fffbeb;border-color:#fcd34d;"
+        >
+          <div class="text-[11px] font-black tracking-wide mb-2" style="color:#b45309;">
+            📦 此套裝包含 {{ item.components.length }} 件散裝 SKU（只需核對，不用填數量）
+          </div>
+          <div
+            v-for="(c, ci) in item.components"
+            :key="ci"
+            class="py-2"
+            :class="ci ? 'border-t' : ''"
+            :style="ci ? 'border-color:#fde68a;' : ''"
+          >
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="font-black text-slate-800 text-[15px]">{{ c.sku }}</span>
+              <span class="text-[11px] font-bold px-1.5 py-0.5 rounded" style="background:#fde68a;color:#92400e;">每套 ×{{ c.qty }}</span>
+              <span class="text-[11px] font-bold" style="color:#b45309;">本單共 {{ Math.round((c.qty || 0) * (parseInt(item.reqQty) || 0)) }} 件</span>
+            </div>
+            <div class="text-xs text-slate-600 leading-snug mt-0.5">{{ c.name }}</div>
+            <div class="text-[12px] font-mono mt-0.5" style="color:#64748b;">
+              {{ c.barcode || '（無條碼）' }}
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 到期日提醒水印 — 灰色大字,提醒工人核对实物到期日(日期同標籤 FEFO) -->
