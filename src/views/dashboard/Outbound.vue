@@ -73,6 +73,10 @@ async function loadOrder() {
       name: it.name,
       barcode: it.barcode,
       barcode2: it.barcode2 || '',
+      // 全量条码（主 + 附加）—— 一个 SKU 可能挂 4 个，barcode2 只装得下第一个
+      barcodes: it.barcodes && it.barcodes.length
+        ? it.barcodes
+        : [it.barcode, it.barcode2].filter(Boolean),
       required: it.required_qty,
       systemExpiry: it.system_expiry || '',   // 系统预留批次有效期
       scanned: 0,
@@ -81,11 +85,15 @@ async function loadOrder() {
         sku: c.sku,
         name: c.name,
         barcode: c.barcode,
+        barcodes: c.barcodes && c.barcodes.length
+          ? c.barcodes
+          : [c.barcode, c.barcode2].filter(Boolean),
         qtyPer: c.qty_per,
         requiredQty: c.required_qty,
         scanned: 0,   // 当前凑套已扫数（满 qtyPer → 母件 +1 并归零）
       })),
     }))
+    scanCache.clear()   // 换单 → 上一单的解析结果作废
     focusSku()
   } catch (err) {
     if (!err.handledByInterceptor) {
@@ -120,34 +128,89 @@ function focusSku() {
   setTimeout(f, 500)
 }
 
+// 后端解析结果缓存 — key = 扫的原始码，value = { sku, matchedSku, isComponent } | null
+// 同一个附加条码扫 6 件只查一次库；null 也缓存，免得员工反复扫错码反复打后端。
+// loadOrder 换单时清空。
+const scanCache = new Map()
+const resolving = ref(false)   // 后端解析中 — 挡住这期间的重复扫码
+
+/** 本地匹配 — 后端两道表的子集，命中就不用发请求 */
+function matchLocal(code) {
+  const item = items.value.find(
+    (i) => i.sku === code
+        || (i.barcodes || []).includes(code)
+        || i.barcode === code
+        || i.barcode2 === code
+  )
+  if (item) return { item, comp: null }
+  // BOM 子件（仓库的货可能还没组装成成品，扫子件凑套）
+  for (const it of items.value) {
+    for (const c of (it.components || [])) {
+      if ((c.barcodes || []).includes(code) || c.barcode === code || c.sku === code) {
+        return { item: it, comp: c }
+      }
+    }
+  }
+  return null
+}
+
+/** 把后端返回的 {sku, matched_sku, is_component} 落到本地行上 */
+function hitToRows(hit) {
+  const item = items.value.find((i) => i.sku === hit.sku)
+  if (!item) return null
+  if (!hit.is_component) return { item, comp: null }
+  const comp = (item.components || []).find((c) => c.sku === hit.matched_sku)
+  return comp ? { item, comp } : null
+}
+
 async function scanSku() {
   const code = skuInput.value.trim()
   if (!code || !pickingId.value) return
-  // 防 validate 进行中的双触发
-  if (validating.value) {
+  // 防 validate 进行中 / 后端解析中的双触发
+  if (validating.value || resolving.value) {
     skuInput.value = ''
     return
   }
 
-  // 先按母件/普通商品匹配
-  let item = items.value.find(
-    (i) => i.barcode === code || i.barcode2 === code || i.sku === code
-  )
-  // 再按 BOM 子件匹配（仓库的货可能还没组装成成品，扫子件凑套）
-  let comp = null
-  if (!item) {
-    for (const it of items.value) {
-      if (it.components && it.components.length) {
-        const c = it.components.find((c) => c.barcode === code || c.sku === code)
-        if (c) { item = it; comp = c; break }
+  // ① 本地快速匹配（主条码 / 附加条码 / SKU，母件和子件都试）
+  let hit = matchLocal(code)
+  let viaBackend = false
+
+  // ② 本地落空 → 问后端。后端查两道表（主表 + le.product.barcode 附表），
+  //    认的码比前端手上这份多 —— 前端没有的附加条码、别的编码字段都在那边。
+  if (!hit) {
+    const cached = scanCache.get(code)
+    if (cached !== undefined) {
+      hit = cached && hitToRows(cached)
+      viaBackend = !!cached
+    } else {
+      resolving.value = true
+      try {
+        const r = await outbound.resolveScan(pickingId.value, code)
+        scanCache.set(code, r)
+        hit = hitToRows(r)
+        viaBackend = true
+      } catch (err) {
+        // 404 = 此单确实没这个码；其它错（断网/500）不进缓存，下次还能重试
+        if (err.response?.status === 404) scanCache.set(code, null)
+        hit = null
+      } finally {
+        resolving.value = false
       }
     }
   }
+
+  const item = hit && hit.item
+  const comp = hit && hit.comp
   if (!item) {
     showToast(`❌ 此訂單無 ${code}`, 'error')
     skuInput.value = ''
     skuInputEl.value?.focus()
     return
+  }
+  if (viaBackend) {
+    // 扫的不是这张单上显示的那个码 —— 告诉员工扫中的是谁，免得以为扫错了
+    showToast(`附加條碼 ${code} → ${comp ? comp.sku : item.sku}`, 'success')
   }
   if (item.scanned >= item.required) {
     showToast(`⚠️ ${item.sku} 已掃滿`, 'warning')
@@ -437,7 +500,7 @@ onDeactivated(() => {
             <th>SKU</th>
             <th>中文名</th>
             <th class="hidden lg:table-cell">barcode</th>
-            <th class="hidden lg:table-cell">barcode2</th>
+            <th class="hidden lg:table-cell">其他條碼</th>
             <th class="text-center">系統有效期</th>
             <th class="text-center">訂單數量</th>
             <th class="text-center">出庫數量</th>
@@ -455,7 +518,9 @@ onDeactivated(() => {
               <td class="font-mono font-semibold">{{ it.sku }}</td>
               <td>{{ it.name }}</td>
               <td class="hidden lg:table-cell font-mono text-base font-semibold text-gray-700">{{ it.barcode }}</td>
-              <td class="hidden lg:table-cell font-mono text-sm text-gray-500">{{ it.barcode2 }}</td>
+              <td class="hidden lg:table-cell font-mono text-sm text-gray-500">
+                <div v-for="b in it.barcodes.filter((x) => x !== it.barcode)" :key="b" class="break-all">{{ b }}</div>
+              </td>
               <td class="text-center font-mono text-sm" :class="it.systemExpiry ? 'text-gray-700' : 'text-gray-300'">
                 {{ it.systemExpiry || '—' }}
               </td>
@@ -553,11 +618,10 @@ onDeactivated(() => {
           </div>
           <!-- 底部：barcode 折叠 + 列印按钮 -->
           <div class="mt-2 flex items-center justify-between gap-2 flex-wrap">
-            <details v-if="it.barcode || it.barcode2" class="text-xs text-gray-500 flex-1 min-w-0">
+            <details v-if="it.barcodes.length" class="text-xs text-gray-500 flex-1 min-w-0">
               <summary class="cursor-pointer">條碼</summary>
               <div class="mt-1 space-y-0.5 font-mono">
-                <div v-if="it.barcode" class="break-all">{{ it.barcode }}</div>
-                <div v-if="it.barcode2" class="break-all opacity-70">{{ it.barcode2 }}</div>
+                <div v-for="(b, bi) in it.barcodes" :key="b" class="break-all" :class="bi ? 'opacity-70' : ''">{{ b }}</div>
               </div>
             </details>
             <button
