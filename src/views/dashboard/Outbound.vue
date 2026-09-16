@@ -166,8 +166,16 @@ function hitToRows(hit) {
 async function scanSku() {
   const code = skuInput.value.trim()
   if (!code || !pickingId.value) return
-  // 防 validate 进行中 / 后端解析中的双触发
-  if (validating.value || resolving.value) {
+  // 防 validate 进行中 / 后端解析中的双触发。
+  // 一定要出声 —— 静默吞掉一枪就是少扫一件，员工看不出来，比慢一下严重得多。
+  // (这个窗口只在扫到本地比不到的码时才有，实测 <0.3% 的行，一般碰不上)
+  if (validating.value) {
+    showToast('⏳ 正在提交出庫，請稍候再掃', 'warning')
+    skuInput.value = ''
+    return
+  }
+  if (resolving.value) {
+    showToast(`⏳ 正在查 ${code}，請重掃這一件`, 'warning')
     skuInput.value = ''
     return
   }
