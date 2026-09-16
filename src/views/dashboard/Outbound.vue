@@ -88,6 +88,10 @@ async function loadOrder() {
         barcodes: c.barcodes && c.barcodes.length
           ? c.barcodes
           : [c.barcode, c.barcode2].filter(Boolean),
+        // 组件到期日 = 库存里最早那批(FEFO 会拣到的)，是推测不是承诺，
+        // 所以带个 * 跟母件那格(已预留的确定批次)区分开
+        systemExpiry: c.system_expiry || '',
+        expiryIsEstimate: c.expiry_is_estimate || false,
         qtyPer: c.qty_per,
         requiredQty: c.required_qty,
         scanned: 0,   // 当前凑套已扫数（满 qtyPer → 母件 +1 并归零）
@@ -509,7 +513,7 @@ onDeactivated(() => {
             <th>中文名</th>
             <th class="hidden lg:table-cell">barcode</th>
             <th class="hidden lg:table-cell">其他條碼</th>
-            <th class="text-center">系統有效期</th>
+            <th class="text-center" title="母件=系統已預留的批次；子件標 * = 庫存最早批次（FEFO 推測）">系統有效期</th>
             <th class="text-center">訂單數量</th>
             <th class="text-center">出庫數量</th>
             <th class="text-center">列印</th>
@@ -553,7 +557,11 @@ onDeactivated(() => {
               <td class="text-sm text-amber-900">{{ c.name }}</td>
               <td class="hidden lg:table-cell font-mono text-sm font-semibold text-amber-700">{{ c.barcode }}</td>
               <td class="hidden lg:table-cell"></td>
-              <td class="text-center text-amber-300">—</td>
+              <td class="text-center font-mono text-xs"
+                  :class="c.systemExpiry ? 'text-amber-800' : 'text-amber-300'"
+                  :title="c.systemExpiry ? '庫存最早批次（FEFO 推測，非系統預留）' : '此組件無可用批次或未錄有效期'">
+                {{ c.systemExpiry ? c.systemExpiry + ' *' : '—' }}
+              </td>
               <td class="text-center text-xs text-amber-700">{{ c.requiredQty }}</td>
               <td class="text-center text-xs font-semibold"
                   :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-600' : 'text-amber-700'">
@@ -618,6 +626,10 @@ onDeactivated(() => {
               class="flex items-center justify-between gap-2 text-xs text-amber-900 px-2 py-1 rounded border-l-4 border-amber-400 bg-amber-100/80"
             >
               <span class="truncate flex-1">└ {{ c.name }}</span>
+              <span v-if="c.systemExpiry" class="font-mono flex-shrink-0 text-amber-700/80"
+                    title="庫存最早批次（FEFO 推測，非系統預留）">
+                {{ c.systemExpiry }} *
+              </span>
               <span class="font-mono flex-shrink-0 font-semibold"
                     :class="(it.scanned * c.qtyPer + c.scanned) >= c.requiredQty ? 'text-green-600' : 'text-amber-700'">
                 {{ it.scanned * c.qtyPer + c.scanned }}/{{ c.requiredQty }}
