@@ -46,6 +46,8 @@ const curSKU = ref(null)         // 当前打开的 SKU 字符串
 
 // 每 SKU 的录入状态：{ dates: [], a: { [allocId]: { [wh]: { [dateKey]: qty } } } }
 const pk = reactive({})
+// 每 SKU 的「待核对」到期日：{ [sku]: [dateKey,...] } —— 由供应商到期日预填出来、尚未与实物核对的日期列
+const pending = reactive({})
 // 每 SKU 的 remarks 处理状态：{ handled, by, time }
 const remarksStatus = reactive({})
 // 每 SKU 的服务端 last_modified_at（用于乐观锁）+ last_modified_by
@@ -193,6 +195,10 @@ const hasDates = computed(() => (curPk.value?.dates.length || 0) > 0)
 // 这类商品必须填到期日才能正确 FEFO 出库
 const isFefoItem = computed(() => !!curItem.value?.is_fefo)
 
+// 供应商到期日预填相关 —— 当前 SKU 的原始到期日文本 + 待核对日期列
+const supplierExpiryText = computed(() => curItem.value?.supplier_expiry || '')
+const curPending = computed(() => (curSKU.value && pending[curSKU.value]) ? pending[curSKU.value] : [])
+
 // FEFO 强制校验 — 在 save / 返回 动作开头调用
 // 规则：当前打开的 SKU 若是 FEFO 商品，且已录了数量（总量 > 0）但没填到期日，
 //      → 阻止动作并提示。没录数量 / 没打开 SKU / 已填到期日 → 放行。
@@ -257,6 +263,7 @@ async function loadPO(opts = {}) {
     const res = await poApi.getCounting(v)
     // 重置本地状态
     Object.keys(pk).forEach(k => delete pk[k])
+    Object.keys(pending).forEach(k => delete pending[k])
     Object.keys(remarksStatus).forEach(k => delete remarksStatus[k])
     Object.keys(showDI).forEach(k => delete showDI[k])
     Object.keys(comboExpanded).forEach(k => delete comboExpanded[k])
@@ -278,6 +285,15 @@ async function loadPO(opts = {}) {
       pk[it.sku] = {
         dates: Array.isArray(counting.dates) ? counting.dates.slice() : [],
         a: {},
+      }
+      // 供应商到期日预填：仅 FEFO 商品、且后端尚无已录日期时，用供应商到期日预填成「待核对」列。
+      // 不 markDirty(不算修改)——用户核对(✓)或删除前不会保存;刷新会按后端重新预填。
+      const supDates = Array.isArray(it.supplier_expiry_dates) ? it.supplier_expiry_dates.filter(Boolean) : []
+      if (it.is_fefo && pk[it.sku].dates.length === 0 && supDates.length > 0) {
+        pk[it.sku].dates = supDates.slice()
+        pending[it.sku] = supDates.slice()
+      } else {
+        pending[it.sku] = []
       }
       // 为每个 alloc × 仓 × 效期 准备 entries
       it.allocs.forEach(al => {
@@ -472,10 +488,22 @@ function addDate() {
   showToast(`✅ 已新增 ${fmtDate(v)}`, 'success')
 }
 
+// 核对「待核对」日期列：与实物一致 → 点 ✓ 确认，转为正式日期(脱离待核对)
+function confirmDate(dt) {
+  const sku = curSKU.value
+  const arr = pending[sku]
+  if (!arr) return
+  const i = arr.indexOf(dt)
+  if (i >= 0) { arr.splice(i, 1); markDirty(sku) }
+}
+
 function removeDate(idx) {
   const sku = curSKU.value
   const d = pk[sku]
   const removed = d.dates.splice(idx, 1)[0]
+  // 同步清掉待核对标记
+  const pa = pending[sku]
+  if (pa) { const pi = pa.indexOf(removed); if (pi >= 0) pa.splice(pi, 1) }
   curItem.value.allocs.forEach(al => {
     whKeysOf(al).forEach(w => {
       const entries = d.a[al.id]?.[w]
@@ -525,18 +553,59 @@ function buildPayloadRow(sku) {
   const meta = lineMeta[sku]
   const data = pk[sku]
   const item = (curPO.value?.items || []).find(i => i.sku === sku)
+  // 「待核对」的供应商预填日期列不写入 counting——保存前已经过 pendingGateOk,
+  // 剩下的待核对列都是 0 量,直接从 dates/a 里剔除(避免把未核对的供应商日期落库)。
+  const drop = pending[sku] || []
+  let dates = data.dates.slice()
+  let a = data.a
+  if (drop.length) {
+    dates = dates.filter(dt => !drop.includes(dt))
+    a = {}
+    for (const allocId in data.a) {
+      a[allocId] = {}
+      for (const w in data.a[allocId]) {
+        const ent = { ...data.a[allocId][w] }
+        drop.forEach(k => delete ent[k])
+        if (Object.keys(ent).length === 0) ent[''] = 0
+        a[allocId][w] = ent
+      }
+    }
+  }
   return {
     po_line_id:        meta.po_line_id,
-    counting:          { dates: data.dates.slice(), a: data.a },
+    counting:          { dates, a },
     remarks_handled:   remarksStatus[sku] || { handled: false, by: '', time: '' },
     board:             (item?.board || '').trim(),   // 點貨人填的「板」,提醒分貨
     _last_modified_at: meta.last_modified_at,
   }
 }
 
+// 待核对拦截：若某「待核对」日期列已经填了数量，必须先核对(✓)才能保存。
+// 没填数量的「待核对」列在保存时直接丢弃(见 buildPayloadRow),不进 counting.dates。
+function pendingGateOk() {
+  for (const sku of dirtySkus) {
+    const pa = pending[sku]
+    if (!pa || !pa.length) continue
+    const a = pk[sku]?.a || {}
+    for (const key of pa) {
+      let qty = 0
+      for (const allocId in a) {
+        const whs = a[allocId] || {}
+        for (const w in whs) qty += parseInt(whs[w]?.[key]) || 0
+      }
+      if (qty > 0) {
+        showToast('有「待核對」的供應商到期日已填數量,請先核對(✓)再儲存', 'warning')
+        return false
+      }
+    }
+  }
+  return true
+}
+
 async function saveAll() {
   if (saving.value) return
   if (!fefoGateOk()) return   // FEFO 商品录了量没填到期日 → 拦截，不保存
+  if (!pendingGateOk()) return   // 待核对日期列填了量但没核对 → 拦截
   if (dirtySkus.size === 0) {
     showToast('沒有需要儲存的修改', 'warning')
     return
@@ -1004,10 +1073,20 @@ onActivated(_autoLoadFromQuery)
           📅 有效期限
           <span class="text-[11px] text-gray-300 font-normal">（選填）</span>
         </div>
+        <div v-if="supplierExpiryText" class="mb-2 text-[11px] leading-relaxed" style="color:#B26A00;">
+          供應商到期日：{{ supplierExpiryText }}
+          <span v-if="curPending.length">
+            —— 已預填 {{ curPending.length }} 個<b>待核對</b>日期，與實物核對一致後點 <b>✓</b> 確認，不符請 ✕ 刪除
+          </span>
+        </div>
         <div class="date-chips">
           <span v-if="!hasDates" class="text-xs text-gray-300">尚未新增日期</span>
-          <div v-for="(dt, idx) in curPk.dates" :key="dt" class="date-chip">
-            {{ fmtDate(dt) }}<span class="del" @click="removeDate(idx)">✕</span>
+          <div v-for="(dt, idx) in curPk.dates" :key="dt"
+               class="date-chip" :class="{ 'date-chip-pending': curPending.includes(dt) }">
+            <span v-if="curPending.includes(dt)" class="pend-tag">待核對</span>
+            {{ fmtDate(dt) }}
+            <span v-if="curPending.includes(dt)" class="ok" title="與實物一致，確認" @click="confirmDate(dt)">✓</span>
+            <span class="del" @click="removeDate(idx)">✕</span>
           </div>
           <button class="date-add" @click="toggleDateInput">+</button>
         </div>
@@ -1165,8 +1244,8 @@ onActivated(_autoLoadFromQuery)
                 v-for="dt in curPk.dates"
                 :key="dt"
                 class="shrink-0 text-center px-1 py-0.5 rounded text-[10px] font-bold"
-                style="width:82px;color:#5C6BC0;background:#EDE7F6;"
-              >{{ fmtDate(dt) }}</div>
+                :style="curPending.includes(dt) ? 'width:82px;color:#B26A00;background:#FFF3E0;' : 'width:82px;color:#5C6BC0;background:#EDE7F6;'"
+              >{{ fmtDate(dt) }}<template v-if="curPending.includes(dt)"> ⏳</template></div>
               <div class="w-4 shrink-0"></div>
               <div class="w-[52px] shrink-0 text-center text-[11px] text-gray-500 font-semibold">合計</div>
               <div class="w-5.5 shrink-0"></div>
