@@ -26,6 +26,12 @@ import { usePageRefresh } from '@/composables/usePageRefresh'
 import RefreshButton from '@/components/RefreshButton.vue'
 import { printLabels } from '@/utils/labelRenderers'
 
+// 強制出庫開關 — Koro 2026-09-30「暫時不用」。
+// 關掉之後:按鈕唔顯示, 未掃滿嘅錯誤提示亦都唔會再叫員工去撳一個唔存在嘅掣。
+// 後端 validateOutbound(force=true) 同 forceComplete() 都原封不動留住,
+// 改返 true 就即刻恢復, 唔使重新寫。
+const SHOW_FORCE_SHIP = false
+
 // ============================================================
 // 状态
 // ============================================================
@@ -387,7 +393,10 @@ async function doValidate(force) {
       if (code === 'over_quantity') {
         msg = `⚠️ 超量：${err.response.data.sku} 需求 ${err.response.data.required}，提交 ${err.response.data.received}`
       } else if (code === 'not_complete') {
-        msg = `⚠️ 未掃滿：剩 ${err.response.data.unscanned} 件，可點「強制出庫」`
+        // 強制出庫收起咗之後唔可以再叫員工去撳佢(見 SHOW_FORCE_SHIP)
+        msg = SHOW_FORCE_SHIP
+          ? `⚠️ 未掃滿：剩 ${err.response.data.unscanned} 件，可點「強制出庫」`
+          : `⚠️ 未掃滿：剩 ${err.response.data.unscanned} 件`
       } else if (code === 'picking_already_done') {
         msg = '此單已完成出庫'
       }
@@ -491,7 +500,14 @@ onDeactivated(() => {
         >
           {{ validating ? '處理中…' : '全部出庫' }}
         </button>
-        <button class="g-btn g-btn-pink" :disabled="!pickingId || validating" @click="forceComplete">
+        <!-- 強制出庫:Koro 2026-09-30「暫時不用」→ 先收起, 唔刪。
+             要恢復:SHOW_FORCE_SHIP 改返 true(提示文案會一齊跟住回來)。 -->
+        <button
+          v-if="SHOW_FORCE_SHIP"
+          class="g-btn g-btn-pink"
+          :disabled="!pickingId || validating"
+          @click="forceComplete"
+        >
           {{ validating ? '處理中…' : '強制出庫' }}
         </button>
       </div>
