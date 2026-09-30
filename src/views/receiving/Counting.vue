@@ -198,6 +198,33 @@ const isFefoItem = computed(() => !!curItem.value?.is_fefo)
 // 供应商到期日预填相关 —— 当前 SKU 的原始到期日文本 + 待核对日期列
 const supplierExpiryText = computed(() => curItem.value?.supplier_expiry || '')
 const curPending = computed(() => (curSKU.value && pending[curSKU.value]) ? pending[curSKU.value] : [])
+// 后端识别到的供应商到期日 / 箱数明细 / 箱数合计(1b)
+const curSupDates = computed(() => {
+  const it = curItem.value
+  return (it && Array.isArray(it.supplier_expiry_dates)) ? it.supplier_expiry_dates.filter(Boolean) : []
+})
+const curSupBatches = computed(() => {
+  const it = curItem.value
+  return (it && Array.isArray(it.supplier_expiry_batches)) ? it.supplier_expiry_batches : []
+})
+const curSupTotal = computed(() => curItem.value?.supplier_expiry_total || null)
+// 某日期已点数量(跨 alloc × 仓累加),用于箱数明细的「与供应商不符」黄标
+function countedQtyForDate(sku, dateKey) {
+  if (!dateKey) return 0
+  const a = pk[sku]?.a || {}
+  let q = 0
+  for (const allocId in a) {
+    const whs = a[allocId] || {}
+    for (const w in whs) q += parseInt(whs[w]?.[dateKey]) || 0
+  }
+  return q
+}
+// 该批次是否与已点数量不符(仅在已点入 > 0 时提示,不拦截保存)
+function supBatchMismatch(b) {
+  if (b == null || b.qty == null || !b.date) return false
+  const counted = countedQtyForDate(curSKU.value, b.date)
+  return counted > 0 && counted !== b.qty
+}
 
 // FEFO 强制校验 — 在 save / 返回 动作开头调用
 // 规则：当前打开的 SKU 若是 FEFO 商品，且已录了数量（总量 > 0）但没填到期日，
@@ -1074,10 +1101,35 @@ onActivated(_autoLoadFromQuery)
           <span class="text-[11px] text-gray-300 font-normal">（選填）</span>
         </div>
         <div v-if="supplierExpiryText" class="mb-2 text-[11px] leading-relaxed" style="color:#B26A00;">
-          供應商到期日：{{ supplierExpiryText }}
-          <span v-if="curPending.length">
-            —— 已預填 {{ curPending.length }} 個<b>待核對</b>日期，與實物核對一致後點 <b>✓</b> 確認，不符請 ✕ 刪除
-          </span>
+          <template v-if="curSupDates.length">
+            供應商提供：{{ curSupDates.map(fmtDate).join(' · ') }} · 請核對
+            <span v-if="curPending.length">
+              —— 已預填 {{ curPending.length }} 個<b>待核對</b>日期，與實物核對一致後點 <b>✓</b> 確認，不符請 ✕ 刪除
+            </span>
+          </template>
+          <template v-else>
+            供應商填寫：{{ supplierExpiryText }}（無法自動識別，請按實物填寫）
+          </template>
+        </div>
+        <!-- 1b 供应商箱数明细（仅参考，不预填数量；箱数请自行分仓） -->
+        <div v-if="curSupBatches.length" class="mb-2 rounded-lg"
+             style="background:#FFFDF5;border:1px solid #FFE0B2;padding:8px 10px;">
+          <div class="text-[11px] font-bold mb-1" style="color:#8D6E63;">供應商箱數明細（僅供參考，箱數請自行分倉）</div>
+          <div v-for="(b, bi) in curSupBatches" :key="bi"
+               class="flex items-center justify-between text-[11px] py-0.5"
+               :class="{ 'sup-batch-warn': supBatchMismatch(b) }">
+            <span style="color:#5D4037;">
+              {{ b.date ? fmtDate(b.date) : '未識別日期' }}
+              <template v-if="b.boxes != null"> — <b>{{ b.boxes }} 箱</b></template>
+              <template v-if="b.qty != null">（{{ b.qty }} 件）</template>
+            </span>
+            <span v-if="supBatchMismatch(b)" class="text-[10px] shrink-0 ml-2" style="color:#E65100;">
+              已點 {{ countedQtyForDate(curSKU, b.date) }} 件，與供應商不符
+            </span>
+          </div>
+          <div v-if="curSupTotal && !curSupTotal.match" class="text-[10px] mt-1" style="color:#E65100;">
+            ⚠️ 供應商共 {{ curSupTotal.boxes }} 箱 = {{ curSupTotal.qty }} 件，PO 為 {{ curSupTotal.po_qty }} 件，請注意差異
+          </div>
         </div>
         <div class="date-chips">
           <span v-if="!hasDates" class="text-xs text-gray-300">尚未新增日期</span>

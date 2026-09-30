@@ -252,6 +252,8 @@
 .m3a .date-chip .ok {
   cursor: pointer; font-size: 15px; font-weight: 900; color: #2E7D32; line-height: 1;
 }
+/* 供应商箱数明细：某日期已点数量与供应商不符 → 黄底提示(不拦截保存) */
+.m3a .sup-batch-warn { background: #FFF8E1; border-radius: 4px; padding: 0 4px; }
 .m3a .date-add {
   display: inline-flex; align-items: center; justify-content: center;
   width: 38px; height: 38px; border-radius: 8px;
