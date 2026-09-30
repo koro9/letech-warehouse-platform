@@ -159,6 +159,39 @@ function groupStatus(g) {
   return 'partial'
 }
 
+// ── 列表筛选：全部 / 待揀 / 進行中 / 已完成 / 有BOM（照 PO 點貨模式）──
+const filterStatus = ref('all')
+function groupHasBom(g) {
+  return (g?.items || []).some(i => i.is_bom || i.has_bom)
+}
+const statusCounts = computed(() => {
+  const gs = curGroups.value
+  const c = { all: gs.length, pending: 0, progress: 0, done: 0, bom: 0 }
+  for (const g of gs) {
+    const s = groupStatus(g)
+    if (s === 'pending') c.pending++
+    else if (s === 'done') c.done++
+    else c.progress++            // partial + over 都算「進行中」
+    if (groupHasBom(g)) c.bom++
+  }
+  return c
+})
+const filteredGroups = computed(() => {
+  const gs = curGroups.value
+  const f = filterStatus.value
+  if (f === 'all') return gs
+  if (f === 'bom') return gs.filter(groupHasBom)
+  if (f === 'progress') return gs.filter(g => ['partial', 'over'].includes(groupStatus(g)))
+  return gs.filter(g => groupStatus(g) === f)   // pending / done
+})
+function filterChipCls(active) {
+  return active
+    ? 'px-3 py-1 rounded-full text-xs font-bold bg-indigo-600 text-white border border-indigo-600 cursor-pointer whitespace-nowrap shrink-0'
+    : 'px-3 py-1 rounded-full text-xs font-bold bg-white text-slate-500 border border-slate-200 cursor-pointer whitespace-nowrap shrink-0 hover:bg-slate-50'
+}
+// 换单/换视图时重置筛选，避免旧筛选把新单的品项藏起来
+watch(() => activeTransfer.value?.id, () => { filterStatus.value = 'all' })
+
 function trStats(tr) {
   // 后端已经返了 stats，直接用
   return tr.stats || { groups: 0, total_req: 0, total_pick: 0, total_boxes: 0, done_groups: 0 }
@@ -1576,6 +1609,15 @@ onBeforeUnmount(() => {
       >⚠ {{ bcError }}</div>
     </div>
 
+    <!-- 状态筛选（全部/待揀/進行中/已完成/有BOM）— 3PL 揀貨模式 -->
+    <div v-if="isLocalDraft" class="flex items-center gap-2 px-4 py-2 border-b border-gray-200 overflow-x-auto flex-shrink-0" style="background:#fff;">
+      <button :class="filterChipCls(filterStatus==='all')" @click="filterStatus='all'">全部 {{ statusCounts.all }}</button>
+      <button :class="filterChipCls(filterStatus==='pending')" @click="filterStatus='pending'">待揀 {{ statusCounts.pending }}</button>
+      <button :class="filterChipCls(filterStatus==='progress')" @click="filterStatus='progress'">進行中 {{ statusCounts.progress }}</button>
+      <button :class="filterChipCls(filterStatus==='done')" @click="filterStatus='done'">已完成 {{ statusCounts.done }}</button>
+      <button v-if="statusCounts.bom > 0" :class="filterChipCls(filterStatus==='bom')" @click="filterStatus='bom'">有BOM {{ statusCounts.bom }}</button>
+    </div>
+
     <!-- 表头 — 3PL 揀貨模式 -->
     <div v-if="isLocalDraft" class="flex items-center px-4 py-2 border-b border-gray-200 text-[11px] font-bold tracking-wider flex-shrink-0" style="background:rgba(241,245,249,.8);color:#94a3b8;">
       <div class="flex-1">品項</div>
@@ -1594,21 +1636,21 @@ onBeforeUnmount(() => {
     <!-- 品项列表 — 3PL 揀貨模式 -->
     <div v-if="isLocalDraft" class="flex-1 overflow-y-auto">
       <div
-        v-for="(g, gi) in curGroups"
+        v-for="g in filteredGroups"
         :key="g.id"
         class="flex items-center px-4 py-3.5 border-b border-gray-100 cursor-pointer transition-colors"
         :class="[
           groupStatus(g) === 'done' ? 'bg-emerald-50/60' : 'bg-white hover:bg-slate-50',
           (g.items || []).some(i => !i.item_counted) ? 'opacity-50' : ''
         ]"
-        @click="openItem(gi)"
+        @click="openItem(curGroups.indexOf(g))"
       >
         <div class="flex-1 min-w-0 pr-2">
           <div class="flex items-center gap-1.5 mb-0.5">
             <span v-if="(g.items || []).some(i => !i.item_counted)" class="shrink-0 text-sm">🔒</span>
             <span class="font-bold text-sm text-slate-800 truncate">{{ g.displayName }}</span>
             <span
-              v-if="(g.items || []).some(i => i.is_bom)"
+              v-if="(g.items || []).some(i => i.is_bom || i.has_bom)"
               class="shrink-0 text-[10px] px-1.5 py-px rounded-md font-bold border"
               style="background:linear-gradient(90deg,#fed7aa,#fce7f3);color:#c2410c;border-color:#fdba74;"
             >BOM</span>
@@ -1652,6 +1694,9 @@ onBeforeUnmount(() => {
         >🖨️</button>
         <div v-else class="w-8 ml-1 shrink-0"></div>
       </div>
+      <div v-if="filteredGroups.length === 0" class="px-4 py-10 text-center text-sm text-slate-400">
+        此篩選下沒有品項
+      </div>
     </div>
 
     <!-- 品项列表 — 非 3PL（SD4/WS/SAMPL 等）: 只讀顯示數量 -->
@@ -1665,7 +1710,7 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-1.5 mb-0.5">
             <span class="font-bold text-sm text-slate-800 truncate">{{ g.displayName }}</span>
             <span
-              v-if="(g.items || []).some(i => i.is_bom)"
+              v-if="(g.items || []).some(i => i.is_bom || i.has_bom)"
               class="shrink-0 text-[10px] px-1.5 py-px rounded-md font-bold border"
               style="background:linear-gradient(90deg,#fed7aa,#fce7f3);color:#c2410c;border-color:#fdba74;"
             >BOM</span>
