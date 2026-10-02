@@ -182,7 +182,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
       <!-- 用户徽标：移动端 < sm 只显示 emoji；sm+ 显示名字；md+ 显示完整 -->
       <button
-        class="ml-auto flex items-center gap-1.5 px-2 md:px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0"
+        class="ml-auto flex items-center gap-1.5 px-2 md:px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors flex-shrink-0"
         :class="auth.isInternal
           ? 'bg-blue-500 text-white hover:bg-blue-600'
           : 'bg-teal text-white hover:bg-teal/90'"
@@ -206,7 +206,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         class="hidden md:flex bg-white border-r border-gray-200 flex-col flex-shrink-0 overflow-y-auto pt-2 transition-[width] duration-200"
         :class="['w-16 lg:w-[200px]']"
       >
-        <div class="hidden lg:block text-[11px] font-bold text-gray-300 px-5 pt-4 pb-2 tracking-widest">
+        <div class="hidden lg:block text-[13px] font-bold text-gray-300 px-5 pt-4 pb-2 tracking-widest">
           {{ sectionTitle }}
         </div>
         <template v-for="item in navItems" :key="item.name">
@@ -270,11 +270,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
         <!-- 系统切换区 -->
         <div class="p-3 border-b border-gray-100 flex-shrink-0">
-          <div class="text-[11px] font-bold text-gray-400 px-2 pb-2 tracking-widest">系統</div>
+          <div class="text-[13px] font-bold text-gray-400 px-2 pb-2 tracking-widest">系統</div>
           <button
             v-for="sys in systems"
             :key="sys.key"
-            class="w-full px-3 py-2.5 mb-1 rounded-lg text-left text-sm font-semibold flex items-center transition-colors"
+            class="w-full px-3 py-2.5 mb-1 rounded-lg text-left text-base font-semibold flex items-center transition-colors"
             :class="currentSystem === sys.key
               ? 'bg-teal text-white shadow'
               : 'text-gray-600 hover:bg-gray-50'"
@@ -286,7 +286,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
         <!-- 当前系统菜单 -->
         <div class="flex-1 overflow-y-auto py-2">
-          <div class="text-[11px] font-bold text-gray-400 px-5 pt-2 pb-2 tracking-widest">
+          <div class="text-[13px] font-bold text-gray-400 px-5 pt-2 pb-2 tracking-widest">
             {{ sectionTitle }}
           </div>
           <template v-for="item in navItems" :key="item.name">

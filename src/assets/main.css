@@ -321,9 +321,10 @@
 .m3c-grad  { background-size: 200% 200%; animation: m3cGrad 8s ease infinite; }
 
 /* Demo 顶部系统切换 tab */
+/* 2026-10-02 Koro:倉庫同事睇唔清, 頂部同側邊字體大 1~2 號 */
 .sys-tab {
   padding: 8px 20px; border-radius: 8px; border: none; background: none;
-  font-size: 13px; font-weight: 600; color: #888; cursor: pointer;
+  font-size: 16px; font-weight: 600; color: #888; cursor: pointer;
   transition: all .2s; white-space: nowrap;
 }
 .sys-tab:hover { background: #f3f4f6; color: #555; }
@@ -332,9 +333,10 @@
 }
 
 /* 侧边栏导航 */
+/* 2026-10-02 Koro:字體大 1~2 號, padding 跟住加免得擠 */
 .sb-nav {
-  display: flex; align-items: center; gap: 12px; padding: 11px 22px;
-  cursor: pointer; font-size: 14px; color: #666;
+  display: flex; align-items: center; gap: 12px; padding: 13px 22px;
+  cursor: pointer; font-size: 17px; color: #666;
   border-left: 3px solid transparent; transition: all .12s;
   border-top: none; border-right: none; border-bottom: none;
   background: none; width: 100%; text-align: left;
@@ -345,7 +347,7 @@
   background: linear-gradient(90deg, #f0f9f7, transparent);
 }
 .sb-nav .ni {
-  width: 20px; text-align: center; font-size: 15px;
+  width: 22px; text-align: center; font-size: 18px;
   flex-shrink: 0; opacity: .8;
 }
 .sb-nav.active .ni { opacity: 1; }
