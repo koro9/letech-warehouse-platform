@@ -1288,8 +1288,11 @@ onActivated(_autoLoadFromQuery)
         <div class="overflow-x-auto pb-1">
           <div class="min-w-max">
             <!-- 日期表头 -->
-            <div class="flex items-center gap-1.5 px-4 pt-2 pb-1">
-              <div class="w-10 shrink-0"></div>
+            <!-- pr-4 唔係 px-4:左邊距由 sticky 嗰格自己嘅 pl-4 畀,
+                 唔係由父容器畀 —— 否則一滾就會連 padding 一齊滾走 -->
+            <div class="flex items-center gap-1.5 pr-4 pt-2 pb-1">
+              <!-- 跟下面倉名格同寬同 sticky,橫向滾時表頭同行先對得齊 -->
+              <div class="w-14 shrink-0 sticky left-0 z-10 bg-white pl-4"></div>
               <div class="w-8 shrink-0 text-center text-[11px] text-gray-500 font-semibold">需求</div>
               <div class="w-4 shrink-0"></div>
               <div
@@ -1304,8 +1307,13 @@ onActivated(_autoLoadFromQuery)
             </div>
             <!-- 各仓库 row -->
             <template v-for="w in whKeysOf(al)" :key="w">
-              <div v-if="(al.warehouses[w] || 0) > 0" class="flex items-center gap-1.5 px-4 py-1.5 border-b border-gray-50">
-                <div class="w-10 shrink-0 text-sm font-bold" :style="{ color: whColor(w) }">{{ w }}</div>
+              <div v-if="(al.warehouses[w] || 0) > 0" class="flex items-center gap-1.5 pr-4 py-1.5 border-b border-gray-50">
+                <!-- 倉名要釘死喺左邊 —— 呢行成日橫向滾(手機窄 + 2026-09-30 加咗
+                     標籤徽章同「= N箱+M件」提示,行闊咗近 100px),一滾最左邊嘅
+                     3PL/SD4 就俾推出視野,倉庫員唔知自己填緊邊個倉(lok 2026-10-02 報)。
+                     sticky + 白底遮住滾過嚟嘅內容,點滾都見到。表頭嗰格同樣處理。 -->
+                <div class="w-14 shrink-0 text-sm font-bold sticky left-0 z-10 bg-white pl-4"
+                     :style="{ color: whColor(w) }">{{ w }}</div>
                 <!-- 標籤徽章:提醒倉庫員特殊處理 -->
                 <span v-for="(b, i) in labelTypeBadges" :key="i"
                       class="shrink-0 inline-block px-1.5 py-0 rounded text-[10px] font-bold whitespace-nowrap"
