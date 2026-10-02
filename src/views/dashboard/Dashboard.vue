@@ -9,11 +9,12 @@
  *     last_updated: 'YYYY-MM-DD HH:MM:SS' (HKT)
  *   }
  *
- * KPI 含义（跟后端定义对齐）：
- *   📝 已建立    CREATED       — 非3PL + 当日 pickup_date + 还没进面单批次
- *   ⏳ 待出貨    PENDING       — TOTAL_TARGET − SHIPPED，当日还剩多少张要出
- *                               （2026-10-02 由「已確認」CONFIRMED 换掉：原本显示
- *                                 多少张进了面单批次，仓库看不出「还剩多少要出」）
+ * KPI 含义（跟后端定义对齐）—— 前两格把「还没出货」切成互斥两半，
+ * 顺序就是仓库的作业流：要印单的 → 要出货的 → 已完成：
+ *   📝 已建立    CREATED       — 未出货 ∧ 未印单，下一步去印面单
+ *   ⏳ 待出貨    PENDING       — 未出货 ∧ 已印单，单在手上等出货
+ *                               CREATED + PENDING = TOTAL_TARGET − SHIPPED
+ *                               印完单那张就从左边挪到中间
  *   📦 已出貨/總目標
  *      SHIPPED               — 非3PL + 当日 pickup_date
  *                               + fulfillment_stage in ('pack','ship')
@@ -174,23 +175,22 @@ function hasDay(day) {
 
           <!-- 3 张 KPI 卡片 -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-5 sm:mb-7">
-            <!-- 已建立：还没归到面单批次的运单 -->
+            <!-- 已建立:未出貨 ∧ 未印單 —— 下一步要去印單 -->
             <div class="bg-slate-50 p-4 sm:p-5 rounded-2xl text-center border border-slate-200"
-                 title="非 3PL + 當日出庫 + 已有運單 PDF + 還沒生成面單">
+                 title="仲未出貨、亦都仲未印單 —— 下一步去印面單">
               <div class="text-slate-500 text-xs sm:text-sm font-bold mb-2">📝 已建立</div>
               <div class="text-2xl sm:text-3xl text-slate-900 font-black leading-none">
                 {{ data[sec.key].CREATED ?? '--' }}
               </div>
             </div>
-            <!-- 待出貨：總目標 − 已出貨,即係仲剩幾多張要出。
-                 2026-10-02 由「已確認」改過嚟:原本顯示「幾多張入咗面單批次」,
-                 但倉庫真正想知嘅係「仲有幾多要出」,要自己減先算到。
-                 後端直接畀 PENDING,唔好喺前端自己減 —— 兩邊各算一次遲早漂移。 -->
+            <!-- 待出貨:未出貨 ∧ 已印單 —— 單喺手上,等去出貨。
+                 同左邊「已建立」互斥,兩格加埋 = 總目標 − 已出貨。
+                 印完單嗰張就由左邊挪過嚟中間。 -->
             <div class="p-4 sm:p-5 rounded-2xl text-center"
                  :class="(data[sec.key].PENDING ?? 0) > 0
                          ? 'bg-amber-50 border-2 border-amber-300'
                          : 'bg-slate-50 border border-slate-200'"
-                 title="總目標 − 已出貨 = 當日仲剩幾多張運單未出">
+                 title="已經印咗單、但仲未出貨 —— 單喺手上等出">
               <div class="text-xs sm:text-sm font-bold mb-2"
                    :class="(data[sec.key].PENDING ?? 0) > 0 ? 'text-amber-700' : 'text-slate-500'">
                 ⏳ 待出貨
