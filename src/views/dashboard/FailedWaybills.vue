@@ -213,8 +213,16 @@ onDeactivated(() => {
             <td class="text-xs text-gray-600">{{ r.status || '—' }}</td>
             <td class="text-center text-xs">{{ r.store_code || '—' }}</td>
             <td class="text-xs text-gray-500">{{ r.pickup_date || '—' }}</td>
-            <td class="text-xs" :class="r.error ? 'text-red-600' : 'text-gray-400'" :title="r.error">
-              {{ r.error || '尚未抓取 / 未生成' }}
+            <!-- 拆單來嘅行要講清楚:母單嘅舊面單已作廢、子單係新增嘅。
+                 唔講嘅話同事見到印過嘅運單號又出現,只會當係系統重複打印。 -->
+            <td class="text-xs"
+                :class="r.split_note ? 'text-amber-700 font-medium'
+                        : (r.error ? 'text-red-600' : 'text-gray-400')"
+                :title="r.split_note || r.error">
+              <span v-if="r.split_note">
+                {{ r.split_role === 'parent' ? '⚠️' : '➕' }} {{ r.split_note }}
+              </span>
+              <span v-else>{{ r.error || '尚未抓取 / 未生成' }}</span>
             </td>
             <td class="text-center text-xs text-gray-500">{{ r.attempts }}</td>
             <td class="text-center">

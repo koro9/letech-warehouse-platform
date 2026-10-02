@@ -351,6 +351,14 @@ function hasPartialFailure(r) {
   return r.status === 'done' && r.has_attachment && r.failed_reason
 }
 
+// 批次生成之後,裏面某張運單被拆單 → HKTV 重打咗嗰個運單號嘅 PDF(貨品清單變咗),
+// 但本批次嘅合併 PDF 係生成嗰刻嘅快照,唔會跟住更新。即係留低咗一頁作廢面單。
+// 重印呢個批次就會印出嚟 —— 所以要標出嚟,叫人印之前先核對。
+function voidedTip(r) {
+  return `此批次有 ${r.voided_page_count} 張運單拆單後內容已變,合併 PDF 內嗰幾頁已作廢。`
+       + '重印前請先核對,新面單喺之後嘅批次。'
+}
+
 // 行容器 class（背景色等）
 function rowClass(r) {
   if (isUrgent(r)) return 'bg-red-50 hover:bg-red-100'
@@ -485,6 +493,8 @@ function rowClass(r) {
                 </td>
                 <td class="text-center" :class="rowState(r) === 'ready' ? 'font-semibold' : 'text-gray-500'">
                   {{ r.waybill_count }}
+                  <span v-if="r.voided_page_count" class="ml-1 text-amber-600 cursor-help"
+                        :title="voidedTip(r)">⚠️{{ r.voided_page_count }}</span>
                 </td>
                 <td class="text-xs" :class="rowState(r) === 'ready' ? 'text-gray-500' : 'text-gray-400'">
                   {{ r.operation_time }}
@@ -590,6 +600,9 @@ function rowClass(r) {
               </div>
               <div class="text-xs text-gray-500">
                 運單數：<span :class="rowState(r) === 'ready' ? 'font-semibold text-gray-800' : ''">{{ r.waybill_count }}</span>
+                <span v-if="r.voided_page_count" class="ml-1 text-amber-600" :title="voidedTip(r)">
+                  ⚠️ 含 {{ r.voided_page_count }} 頁作廢
+                </span>
               </div>
             </div>
           </div>
@@ -684,6 +697,8 @@ function rowClass(r) {
                     ? 'text-red-700 font-semibold'
                     : (rowState(r) === 'ready' ? 'font-semibold' : 'text-gray-500')">
                 {{ r.waybill_count }}
+                <span v-if="r.voided_page_count" class="ml-1 text-amber-600 cursor-help"
+                      :title="voidedTip(r)">⚠️{{ r.voided_page_count }}</span>
               </td>
               <td class="text-xs"
                   :class="isUrgent(r) ? 'text-red-600' : (rowState(r) === 'ready' ? 'text-gray-500' : 'text-gray-400')">
