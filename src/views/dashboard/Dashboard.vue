@@ -4,17 +4,21 @@
  *
  * 数据 schema（后端 le_warehouse.controllers.dashboard）：
  *   {
- *     today:    { date, CREATED, CONFIRMED, SHIPPED, TOTAL_TARGET },
+ *     today:    { date, CREATED, CONFIRMED, PENDING, SHIPPED, TOTAL_TARGET },
  *     tomorrow: { 同上 },
  *     last_updated: 'YYYY-MM-DD HH:MM:SS' (HKT)
  *   }
  *
  * KPI 含义（跟后端定义对齐）：
- *   📝 已建立    CREATED       — 非3PL + 当日 pickup_date + 已有运单 PDF + 还没生成面单
- *   ⏳ 已確認    CONFIRMED     — 当日 le.shipping.label 的 waybill_count 之和
+ *   📝 已建立    CREATED       — 非3PL + 当日 pickup_date + 还没进面单批次
+ *   ⏳ 待出貨    PENDING       — TOTAL_TARGET − SHIPPED，当日还剩多少张要出
+ *                               （2026-10-02 由「已確認」CONFIRMED 换掉：原本显示
+ *                                 多少张进了面单批次，仓库看不出「还剩多少要出」）
  *   📦 已出貨/總目標
- *      SHIPPED               — 非3PL + 当日 pickup_date + fulfillment_stage='pack'
- *      TOTAL_TARGET           — 非3PL + 当日 pickup_date + 已有运单 PDF（已建立 + 已确认）
+ *      SHIPPED               — 非3PL + 当日 pickup_date
+ *                               + fulfillment_stage in ('pack','ship')
+ *                               （只数 pack 会漏掉已被 HKTV 取走/送达的，栽过一次）
+ *      TOTAL_TARGET           — 非3PL + 当日 pickup_date 的全部运单
  *      进度条 = SHIPPED / TOTAL_TARGET
  *
  * 自动刷新：默认开 60s 轮询，可关。跟 Shipping 页同款滑动开关 + 脉冲点。
@@ -178,12 +182,22 @@ function hasDay(day) {
                 {{ data[sec.key].CREATED ?? '--' }}
               </div>
             </div>
-            <!-- 已确认：当日面单的运单数总和 -->
-            <div class="bg-slate-50 p-4 sm:p-5 rounded-2xl text-center border border-slate-200"
-                 title="當日 le.shipping.label 的 waybill_count 之和">
-              <div class="text-slate-500 text-xs sm:text-sm font-bold mb-2">⏳ 已確認</div>
-              <div class="text-2xl sm:text-3xl text-slate-900 font-black leading-none">
-                {{ data[sec.key].CONFIRMED ?? '--' }}
+            <!-- 待出貨：總目標 − 已出貨,即係仲剩幾多張要出。
+                 2026-10-02 由「已確認」改過嚟:原本顯示「幾多張入咗面單批次」,
+                 但倉庫真正想知嘅係「仲有幾多要出」,要自己減先算到。
+                 後端直接畀 PENDING,唔好喺前端自己減 —— 兩邊各算一次遲早漂移。 -->
+            <div class="p-4 sm:p-5 rounded-2xl text-center"
+                 :class="(data[sec.key].PENDING ?? 0) > 0
+                         ? 'bg-amber-50 border-2 border-amber-300'
+                         : 'bg-slate-50 border border-slate-200'"
+                 title="總目標 − 已出貨 = 當日仲剩幾多張運單未出">
+              <div class="text-xs sm:text-sm font-bold mb-2"
+                   :class="(data[sec.key].PENDING ?? 0) > 0 ? 'text-amber-700' : 'text-slate-500'">
+                ⏳ 待出貨
+              </div>
+              <div class="text-2xl sm:text-3xl font-black leading-none"
+                   :class="(data[sec.key].PENDING ?? 0) > 0 ? 'text-amber-800' : 'text-slate-900'">
+                {{ data[sec.key].PENDING ?? '--' }}
               </div>
             </div>
             <!-- 已出货 / 总目标：扫码 pack 的 / 当天所有运单 -->
