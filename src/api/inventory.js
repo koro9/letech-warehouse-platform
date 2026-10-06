@@ -44,3 +44,40 @@ export function searchProducts(query) {
 export function getStock(sku) {
   return http.get('/warehouse/inventory/stock', { params: { sku } })
 }
+
+/**
+ * SKU 家族查詢：散裝 + 所有組合裝一次攤開
+ *
+ * 为什么要"家族"而不是单 SKU：仓务问「KUA-060019C 还有没有货」，真正要知道的
+ * 是散装加上所有组合装合起来等于多少。只看一个 SKU 会误判 —— 组合装没货但散装
+ * 有，其实砌得出。
+ *
+ * 后端契约：
+ *   GET /api/warehouse/inventory/family?q=<SKU或條碼>&warehouse=<code>
+ *   200 →
+ *     {
+ *       product:   { sku, name },
+ *       base:      { sku, name } | null,        // 散装；多子件(礼盒)时为 null
+ *       warehouse: { code, name },
+ *       family: [{
+ *         sku, name, role, ratio, is_kit, no_bom,
+ *         on_hand, reserved, available, pending, pending_reserved
+ *       }],
+ *       summary: {
+ *         on_hand_base, free_base, need_base, short_base,
+ *         order_count, convertible                // convertible=false 表示不折合
+ *       },
+ *       pending_orders: [{
+ *         order_name, shop, date_order, sku, qty, delivered, pending,
+ *         reserved, picking_names, picking_state, scheduled_date, no_picking
+ *       }],
+ *       warnings: [string]                        // 没 BOM / 欠货提示
+ *     }
+ *   400 { error: 'missing_query' }
+ *   404 { error: 'product_not_found', suggestions: [{ sku, name }] }
+ */
+export function getFamily(query, warehouse) {
+  const params = { q: query }
+  if (warehouse) params.warehouse = warehouse
+  return http.get('/warehouse/inventory/family', { params })
+}

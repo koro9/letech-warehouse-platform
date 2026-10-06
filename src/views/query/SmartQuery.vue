@@ -6,6 +6,9 @@
  *   1. 商品搜索：调 Odoo 后端 /api/warehouse/inventory/search，按 SKU/Barcode/中英文名 模糊搜
  *   2. 庫存查詢：调 Odoo 后端 /api/warehouse/inventory/stock，直连 stock.quant 实时数据
  *      → 替代了之前的 DEAR API 直连方案，凭据/CORS 代理/设置弹窗都不再需要
+ *   3. SKU 家族查詢：调 /api/warehouse/inventory/family，把散裝 + 所有組合裝一次攤開
+ *      → 仓务问「这个 SKU 还有没有货」，真正要知道的是整个家族合起来等于多少散装。
+ *        只看单个 SKU 会误判：组合装没货但散装有，其实砌得出。
  */
 import { ref } from 'vue'
 import { inventory } from '@/api'
@@ -23,6 +26,13 @@ const invSku = ref('')
 const invLoading = ref(false)
 const invError = ref(null)        // { msg }
 const invResult = ref(null)       // { product, summary, by_warehouse }
+
+// ===== SKU 家族查詢 =====
+const famQuery = ref('')
+const famWarehouse = ref('')      // 空 = 跟使用者所在仓（后端决定）
+const famLoading = ref(false)
+const famError = ref(null)        // { msg, suggestions }
+const famResult = ref(null)
 
 // ============================================================
 // 商品搜索
@@ -111,6 +121,48 @@ async function doInventory() {
   } finally {
     invLoading.value = false
   }
+}
+
+// ============================================================
+// SKU 家族查詢
+// ============================================================
+function clearFam() {
+  famQuery.value = ''
+  famResult.value = null
+  famError.value = null
+}
+
+async function doFamily() {
+  const q = famQuery.value.trim()
+  if (!q) return
+  famLoading.value = true
+  famError.value = null
+  famResult.value = null
+  try {
+    await useGlobalLoading().run(async () => {
+      famResult.value = await inventory.getFamily(q, famWarehouse.value.trim())
+    }, '查詢家族庫存中...')
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      const data = err.response?.data || {}
+      let msg = err.message || '查詢失敗'
+      if (data.error === 'product_not_found') msg = `搵唔到「${q}」`
+      else if (data.error === 'missing_query') msg = '請輸入 SKU 或條碼'
+      else if (data.error === 'warehouse_not_found') msg = '搵唔到指定嘅倉'
+      else if (data.error) msg = data.error
+      famError.value = { msg, suggestions: data.suggestions || [] }
+    }
+  } finally {
+    famLoading.value = false
+  }
+}
+
+// 家族角色 → 配色。散裝係基準所以用藍，冇 BOM 要跳出嚟所以用黃。
+function roleClass(row) {
+  if (row.no_bom) return 'bg-amber-100 text-amber-800'
+  if (row.role.includes('查詢 SKU')) return 'bg-indigo-100 text-indigo-700'
+  if (row.role.includes('散裝')) return 'bg-sky-100 text-sky-700'
+  return 'bg-slate-100 text-slate-600'
 }
 
 // 数字格式化：库存通常是整数，但 Odoo Float 可能带 .0；超过 1k 加千分位
@@ -361,6 +413,172 @@ function fmtQty(n) {
             v-else
             class="text-center text-slate-400 p-5 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-sm"
           >此商品在所有倉庫均無庫存記錄</div>
+        </div>
+      </div>
+
+      <!-- SKU 家族查詢 -->
+      <div class="g-card p-4 sm:p-6">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="bg-violet-50 p-2 sm:p-2.5 rounded-xl flex items-center justify-center text-lg sm:text-xl">🧩</div>
+          <h3 class="text-violet-900 text-base sm:text-xl font-bold">SKU 家族查詢</h3>
+        </div>
+        <p class="text-xs sm:text-sm text-slate-500 mb-4 sm:mb-5 leading-relaxed">
+          散裝 + 所有組合裝一次攤開,折合散裝睇真實可發能力。組合裝冇貨唔代表發唔到 —— 散裝夠就砌得出。
+        </p>
+
+        <form class="flex gap-3 flex-wrap mb-5" @submit.prevent="doFamily">
+          <div class="relative flex-1 min-w-[220px]">
+            <input
+              v-model="famQuery"
+              type="text"
+              placeholder="輸入 SKU 或掃條碼,按 Enter 即查"
+              class="g-input w-full"
+              :disabled="famLoading"
+            />
+          </div>
+          <input
+            v-model="famWarehouse"
+            type="text"
+            placeholder="倉 (預設跟你所在倉)"
+            class="g-input w-[170px]"
+            :disabled="famLoading"
+          />
+          <button type="submit" class="g-btn g-btn-purple" :disabled="famLoading || !famQuery.trim()">
+            🧩 查家族
+          </button>
+          <button v-if="famResult || famError" type="button" class="g-btn g-btn-ghost" @click="clearFam">清除</button>
+        </form>
+
+        <!-- 查唔到 -->
+        <div v-if="famError" class="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm">
+          <p class="text-red-700 font-semibold">{{ famError.msg }}</p>
+          <div v-if="famError.suggestions?.length" class="mt-2">
+            <p class="text-slate-600 mb-1">你係咪搵緊:</p>
+            <ul class="space-y-1">
+              <li v-for="s in famError.suggestions" :key="s.sku">
+                <button
+                  class="font-mono text-indigo-600 hover:underline"
+                  @click="famQuery = s.sku; doFamily()"
+                >{{ s.sku }}</button>
+                <span class="text-slate-500 ml-2">{{ s.name }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div v-else-if="famResult" class="space-y-5">
+          <!-- 警告:冇 BOM / 估計欠貨 -->
+          <div
+            v-for="(w, i) in famResult.warnings"
+            :key="i"
+            class="rounded-2xl border border-amber-300 bg-amber-50 p-3 sm:p-4 text-sm text-amber-900 leading-relaxed"
+          >{{ w }}</div>
+
+          <!-- 折合散裝匯總 -->
+          <div v-if="famResult.summary.convertible" class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="bg-slate-50 rounded-2xl p-3 sm:p-4 text-center">
+              <p class="text-xs text-slate-500 mb-1">在庫(折合散裝)</p>
+              <p class="text-lg sm:text-2xl font-extrabold text-slate-700">{{ fmtQty(famResult.summary.on_hand_base) }}</p>
+            </div>
+            <div class="bg-emerald-50 rounded-2xl p-3 sm:p-4 text-center">
+              <p class="text-xs text-emerald-600 mb-1">可用(折合散裝)</p>
+              <p class="text-lg sm:text-2xl font-extrabold text-emerald-700">{{ fmtQty(famResult.summary.free_base) }}</p>
+            </div>
+            <div class="bg-amber-50 rounded-2xl p-3 sm:p-4 text-center">
+              <p class="text-xs text-amber-600 mb-1">未預留需求</p>
+              <p class="text-lg sm:text-2xl font-extrabold text-amber-700">{{ fmtQty(famResult.summary.need_base) }}</p>
+            </div>
+            <div class="rounded-2xl p-3 sm:p-4 text-center" :class="famResult.summary.short_base > 0 ? 'bg-red-50' : 'bg-slate-50'">
+              <p class="text-xs mb-1" :class="famResult.summary.short_base > 0 ? 'text-red-600' : 'text-slate-500'">估計欠</p>
+              <p class="text-lg sm:text-2xl font-extrabold" :class="famResult.summary.short_base > 0 ? 'text-red-700' : 'text-slate-400'">
+                {{ fmtQty(famResult.summary.short_base) }}
+              </p>
+            </div>
+          </div>
+          <div v-else class="text-xs text-slate-500 bg-slate-50 rounded-xl p-3">
+            呢個 SKU 有多過一種子件(禮盒 / 混合裝),折合散裝冇意義,所以淨係列出各自庫存。
+          </div>
+
+          <!-- 家族庫存表 -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-slate-50 text-slate-500 text-xs">
+                  <th class="p-3 text-left">SKU</th>
+                  <th class="p-3 text-left">類別</th>
+                  <th class="p-3 text-right">1 件 = 散裝</th>
+                  <th class="p-3 text-right">在庫</th>
+                  <th class="p-3 text-right">已預留</th>
+                  <th class="p-3 text-right">可用</th>
+                  <th class="p-3 text-right">未出貨</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="row in famResult.family" :key="row.sku" :class="row.no_bom ? 'bg-amber-50/60' : ''">
+                  <td class="p-3">
+                    <span class="font-mono font-semibold text-slate-800">{{ row.sku }}</span>
+                    <p class="text-xs text-slate-400 mt-0.5 max-w-[22rem] truncate">{{ row.name }}</p>
+                  </td>
+                  <td class="p-3">
+                    <span class="px-2 py-0.5 rounded-lg text-xs font-semibold" :class="roleClass(row)">{{ row.role }}</span>
+                  </td>
+                  <td class="p-3 text-right text-slate-500">{{ row.ratio ? fmtQty(row.ratio) : '—' }}</td>
+                  <td class="p-3 text-right font-semibold text-slate-700">{{ fmtQty(row.on_hand) }}</td>
+                  <td class="p-3 text-right font-semibold text-amber-600">{{ fmtQty(row.reserved) }}</td>
+                  <td class="p-3 text-right font-bold" :class="row.available > 0 ? 'text-emerald-600' : 'text-slate-400'">
+                    {{ fmtQty(row.available) }}
+                  </td>
+                  <td class="p-3 text-right text-slate-600">{{ fmtQty(row.pending) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 未出貨銷售單 -->
+          <div v-if="famResult.pending_orders.length">
+            <h4 class="text-sm font-bold text-slate-700 mb-2">
+              {{ famResult.warehouse.code }} 未出貨銷售單 ({{ famResult.summary.order_count }})
+            </h4>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-slate-50 text-slate-500 text-xs">
+                    <th class="p-3 text-left">訂單</th>
+                    <th class="p-3 text-left">店舖 / 客戶</th>
+                    <th class="p-3 text-left">SKU</th>
+                    <th class="p-3 text-right">未交</th>
+                    <th class="p-3 text-right">已預留</th>
+                    <th class="p-3 text-left">交貨單</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  <tr v-for="(o, i) in famResult.pending_orders" :key="o.order_name + '-' + o.sku + '-' + i">
+                    <td class="p-3 font-mono text-xs text-slate-700">{{ o.order_name }}</td>
+                    <td class="p-3 text-slate-600">{{ o.shop }}</td>
+                    <td class="p-3 font-mono text-xs text-slate-600">{{ o.sku }}</td>
+                    <td class="p-3 text-right font-semibold text-slate-700">{{ fmtQty(o.pending) }}</td>
+                    <td class="p-3 text-right" :class="o.reserved >= o.pending ? 'text-emerald-600 font-semibold' : 'text-red-600 font-semibold'">
+                      {{ fmtQty(o.reserved) }}
+                    </td>
+                    <td class="p-3 text-xs">
+                      <span v-if="o.no_picking" class="text-red-600 font-semibold">冇未完成交貨單</span>
+                      <template v-else>
+                        <span class="text-slate-700">{{ o.picking_names }}</span>
+                        <span class="text-slate-400 ml-1">· {{ o.picking_state }}</span>
+                      </template>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div v-else class="text-center text-slate-400 p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-sm">
+            {{ famResult.warehouse.code }} 冇未出貨銷售單
+          </div>
+        </div>
+
+        <div v-else class="text-center text-slate-400 p-5 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-sm">
+          輸入 SKU 或條碼,查成個家族嘅庫存同未出貨單。
         </div>
       </div>
     </div>
