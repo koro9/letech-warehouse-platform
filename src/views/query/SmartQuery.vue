@@ -157,6 +157,15 @@ async function doFamily() {
   }
 }
 
+// 日期只顯示到分鐘 —— 倉務睇「邊張單幾時落、幾時要出」,秒數冇用。
+function fmtDateTime(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 // 家族角色 → 配色。散裝係基準所以用藍，冇 BOM 要跳出嚟所以用黃。
 function roleClass(row) {
   if (row.no_bom) return 'bg-amber-100 text-amber-800'
@@ -517,6 +526,11 @@ function fmtQty(n) {
                 <tr v-for="row in famResult.family" :key="row.sku" :class="row.no_bom ? 'bg-amber-50/60' : ''">
                   <td class="p-3">
                     <span class="font-mono font-semibold text-slate-800">{{ row.sku }}</span>
+                    <span
+                      v-if="row.is_kit"
+                      class="ml-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-bold align-middle"
+                      title="套件 kit:出貨即扣子件,唔會真係入成品庫存"
+                    >KIT</span>
                     <p class="text-xs text-slate-400 mt-0.5 max-w-[22rem] truncate">{{ row.name }}</p>
                   </td>
                   <td class="p-3">
@@ -545,17 +559,24 @@ function fmtQty(n) {
                   <tr class="bg-slate-50 text-slate-500 text-xs">
                     <th class="p-3 text-left">訂單</th>
                     <th class="p-3 text-left">店舖 / 客戶</th>
+                    <th class="p-3 text-left">落單時間</th>
                     <th class="p-3 text-left">SKU</th>
+                    <th class="p-3 text-right">落單</th>
+                    <th class="p-3 text-right">已交</th>
                     <th class="p-3 text-right">未交</th>
                     <th class="p-3 text-right">已預留</th>
                     <th class="p-3 text-left">交貨單</th>
+                    <th class="p-3 text-left">預計出貨</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                   <tr v-for="(o, i) in famResult.pending_orders" :key="o.order_name + '-' + o.sku + '-' + i">
                     <td class="p-3 font-mono text-xs text-slate-700">{{ o.order_name }}</td>
                     <td class="p-3 text-slate-600">{{ o.shop }}</td>
+                    <td class="p-3 text-xs text-slate-500 whitespace-nowrap">{{ fmtDateTime(o.date_order) }}</td>
                     <td class="p-3 font-mono text-xs text-slate-600">{{ o.sku }}</td>
+                    <td class="p-3 text-right text-slate-600">{{ fmtQty(o.qty) }}</td>
+                    <td class="p-3 text-right text-slate-500">{{ fmtQty(o.delivered) }}</td>
                     <td class="p-3 text-right font-semibold text-slate-700">{{ fmtQty(o.pending) }}</td>
                     <td class="p-3 text-right" :class="o.reserved >= o.pending ? 'text-emerald-600 font-semibold' : 'text-red-600 font-semibold'">
                       {{ fmtQty(o.reserved) }}
@@ -567,6 +588,7 @@ function fmtQty(n) {
                         <span class="text-slate-400 ml-1">· {{ o.picking_state }}</span>
                       </template>
                     </td>
+                    <td class="p-3 text-xs text-slate-500 whitespace-nowrap">{{ fmtDateTime(o.scheduled_date) }}</td>
                   </tr>
                 </tbody>
               </table>
