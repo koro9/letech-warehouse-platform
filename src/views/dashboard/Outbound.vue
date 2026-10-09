@@ -19,7 +19,7 @@
  *   - 平板：输入栏 wrap，表格部分列保留
  *   - 手机：输入框纵向堆叠 + 卡片视图（每个 SKU 一张卡，进度条 + 数字）
  */
-import { ref, computed, nextTick, onDeactivated } from 'vue'
+import { ref, computed, nextTick, onActivated, onDeactivated, onMounted } from 'vue'
 import { outbound, labels as labelsApi } from '@/api'
 import { showToast } from '@/composables/useToast'
 import { usePageRefresh } from '@/composables/usePageRefresh'
@@ -459,6 +459,12 @@ function reset({ focus = true } = {}) {
 onDeactivated(() => {
   reset({ focus: false })
 })
+
+// 一入呢一頁就聚焦運單號框,員工切過嚟可以即刻掃,唔使攞滑鼠撳。
+// onMounted = 第一次開;onActivated = KeepAlive 切返轉頭(onDeactivated
+// 已經清空咗,所以返到嚟一定係空白頁,聚焦運單號框啱晒)。
+onMounted(focusOrder)
+onActivated(focusOrder)
 </script>
 
 <template>
