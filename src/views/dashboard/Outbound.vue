@@ -138,6 +138,16 @@ function focusSku() {
   setTimeout(f, 500)
 }
 
+// 清空之後把焦點拉回「掃描運單號」，員工可以直接掃下一單，唔使攞滑鼠撳。
+// 同 focusSku 一樣補兩次延時 —— 出完貨通常啱啱印完面單，打印對話框會搶焦點。
+// 守衛 !pickingId：有單載入緊就唔好搶走掃貨框嘅焦點（同 focusSku 啱啱相反）。
+function focusOrder() {
+  const f = () => { if (!pickingId.value) orderInputEl.value?.focus() }
+  nextTick(f)
+  setTimeout(f, 200)
+  setTimeout(f, 500)
+}
+
 // 后端解析结果缓存 — key = 扫的原始码，value = { sku, matchedSku, isComponent } | null
 // 同一个附加条码扫 6 件只查一次库；null 也缓存，免得员工反复扫错码反复打后端。
 // loadOrder 换单时清空。
@@ -384,8 +394,7 @@ async function doValidate(force) {
     } else {
       showToast('✅ 出庫完成', 'success')
     }
-    reset()
-    nextTick(() => orderInputEl.value?.focus())
+    reset()   // reset 自己會聚焦運單號框
   } catch (err) {
     if (!err.handledByInterceptor) {
       const code = err.response?.data?.error
@@ -433,7 +442,8 @@ async function shipAll() {
 // ============================================================
 // 重置 — 纯前端清空（方案 B：后端没记录扫码进度，不用清）
 // ============================================================
-function reset() {
+// focus=false 淨係畀 onDeactivated 用 —— 離開呢一頁嗰陣唔好搶焦點。
+function reset({ focus = true } = {}) {
   orderInput.value = ''
   skuInput.value = ''
   items.value = []
@@ -441,12 +451,13 @@ function reset() {
   subOrderNumber.value = ''
   pickingId.value = null
   labelCache.clear()
+  if (focus) focusOrder()
 }
 
 // KeepAlive：离开出庫页（切到其他菜单）即自动重置，
 // 回来时是干净空白页，不残留上一手没扫完的订单/进度。
 onDeactivated(() => {
-  reset()
+  reset({ focus: false })
 })
 </script>
 
@@ -491,7 +502,7 @@ onDeactivated(() => {
           <span class="text-sm text-gray-500">是否列印</span>
         </div>
         <RefreshButton v-if="pickingId" :on-refresh="refreshNow" />
-        <button class="g-btn g-btn-teal" @click="reset">重置</button>
+        <button class="g-btn g-btn-teal" @click="reset()">重置</button>
         <button
           class="g-btn g-btn-blue"
           :disabled="!pickingId || validating"
