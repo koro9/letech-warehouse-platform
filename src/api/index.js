@@ -25,5 +25,6 @@ export * as orders from './orders'
 export * as labels from './labels'
 export * as dashboard from './dashboard'
 export * as po from './po'
+export * as stocktake from './stocktake'
 
 export { default as http } from './http'

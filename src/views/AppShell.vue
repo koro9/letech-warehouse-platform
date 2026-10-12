@@ -52,6 +52,8 @@ function prefetchViews() {
       import('@/views/receiving/DraftManagement.vue'),
       // Query
       import('@/views/query/SmartQuery.vue'),
+      // Stocktake
+      import('@/views/stocktake/Stocktake.vue'),
     ])
   })
 }
@@ -63,6 +65,7 @@ const systems = [
   { key: 'dashboard', label: '📤 出貨作業中心', shortLabel: '📤 出貨', home: { name: 'home' } },
   { key: 'receiving', label: '📦 PO 收貨平台',   shortLabel: '📦 收貨', home: { name: 'receiving-dashboard' } },
   { key: 'query',     label: '🔍 智能查詢',       shortLabel: '🔍 查詢', home: { name: 'query-home' } },
+  { key: 'stocktake', label: '📋 每日盤點',       shortLabel: '📋 盤點', home: { name: 'stocktake' } },
 ]
 
 // 每个系统的侧边栏项 — 跟 demo 顺序对齐
@@ -96,6 +99,9 @@ const sidebars = {
   query: [
     { name: 'query-home', label: '智能查詢中心', icon: '🔍' },
   ],
+  stocktake: [
+    { name: 'stocktake', label: '每日盤點', icon: '📋' },
+  ],
 }
 
 const currentSystem = computed(() => route.meta?.system || 'dashboard')
@@ -108,6 +114,7 @@ const navItems = computed(() =>
 const sectionTitle = computed(() => {
   if (currentSystem.value === 'receiving') return 'PO 收貨'
   if (currentSystem.value === 'query') return '查詢工具'
+  if (currentSystem.value === 'stocktake') return '每日盤點'
   return 'MENU'
 })
 

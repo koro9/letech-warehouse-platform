@@ -45,6 +45,9 @@ const routes = [
 
       // ===== 智能查詢（直连 Odoo 庫存） =====
       { path: 'query', name: 'query-home', component: () => import('@/views/query/SmartQuery.vue'), meta: { system: 'query' } },
+
+      // ===== 每日盤點 =====
+      { path: 'stocktake', name: 'stocktake', component: () => import('@/views/stocktake/Stocktake.vue'), meta: { system: 'stocktake' } },
     ],
   },
   {
