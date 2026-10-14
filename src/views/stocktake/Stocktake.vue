@@ -244,6 +244,7 @@ function n(v) { return v == null ? '' : v }
                 <span v-if="l.forced" class="text-[11px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">手動加入</span>
               </div>
               <div class="text-xs text-gray-500 truncate">{{ l.name }}</div>
+              <div v-if="l.barcode" class="text-[11px] font-mono text-gray-400 mt-0.5">條碼 {{ l.barcode }}</div>
             </div>
             <span class="text-[11px] px-2 py-0.5 rounded-full border whitespace-nowrap" :class="STATE_STYLE[l.state]">{{ l.state_label }}</span>
           </div>
