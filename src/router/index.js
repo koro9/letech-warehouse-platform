@@ -48,6 +48,11 @@ const routes = [
 
       // ===== 每日盤點 =====
       { path: 'stocktake', name: 'stocktake', component: () => import('@/views/stocktake/Stocktake.vue'), meta: { system: 'stocktake' } },
+
+      // ===== 貨架管理（仓内整理：板/格子 = Odoo 子库位） =====
+      { path: 'shelf',           name: 'shelf-product',   component: () => import('@/views/shelf/ProductBins.vue'), meta: { system: 'shelf' } },
+      { path: 'shelf/location',  name: 'shelf-location',  component: () => import('@/views/shelf/ShelfLookup.vue'), meta: { system: 'shelf' } },
+      { path: 'shelf/unshelved', name: 'shelf-unshelved', component: () => import('@/views/shelf/Unshelved.vue'),   meta: { system: 'shelf' } },
     ],
   },
   {
