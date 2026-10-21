@@ -68,3 +68,26 @@ export function getLocationStock({ q, locationId, warehouse } = {}) {
   if (warehouse) params.warehouse = warehouse
   return http.get('/warehouse/shelf/location', { params })
 }
+
+/**
+ * 未上架清单：库存根库位本层还有货的 SKU（还没放上任何板 / 格子），分页
+ *
+ *   GET /api/warehouse/shelf/unshelved?warehouse=&q=&scope=&sort=&page=&page_size=
+ *     scope: all | started（只看已开始上架的 SKU）
+ *     sort:  qty_desc（默认）| qty_asc | sku
+ *   200 → {
+ *     warehouse, summary: { unshelved_qty, unshelved_sku_count, shelved_qty, started_sku_count },
+ *     products: [{ sku, name, barcode, unshelved, reserved, available, shelved, total, earliest_expiry }],
+ *     page, page_size, total, total_pages, has_more
+ *   }
+ */
+export function getUnshelved({ warehouse, q, scope, sort, page, pageSize } = {}) {
+  const params = {}
+  if (warehouse) params.warehouse = warehouse
+  if (q) params.q = q
+  if (scope) params.scope = scope
+  if (sort) params.sort = sort
+  if (page) params.page = page
+  if (pageSize) params.page_size = pageSize
+  return http.get('/warehouse/shelf/unshelved', { params })
+}
