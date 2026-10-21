@@ -1,7 +1,7 @@
 import http from './http'
 
 /**
- * 貨架管理 — 板 / 格子 = Odoo 子库位（stock.location），数量 = stock.quant
+ * 倉庫作業中心 — 板 / 格子 = Odoo 子库位（stock.location），数量 = stock.quant
  * 后端：le_warehouse/controllers/shelf.py
  *
  * 两个接口都返回一棵树，节点 = 库位：
@@ -9,6 +9,24 @@ import http from './http'
  *   own   = 本层（不含下层）
  *   total = 含所有下层的合计
  */
+
+/**
+ * 货架结构：整个仓库存树的位置层级 + 每个位置的件数 / SKU 数（不带商品明细）
+ *
+ *   GET /api/warehouse/shelf/structure?warehouse=<code>
+ *   200 → {
+ *     warehouse: { code, name },
+ *     summary:   { on_hand, reserved, sku_count, location_count, empty_count,
+ *                  unshelved, unshelved_sku_count },
+ *     tree:      根 = 库存根库位；own = 本层 { on_hand, reserved, sku_count }，
+ *                total = 含下层 { on_hand, reserved, sku_count, location_count }
+ *   }
+ */
+export function getStructure(warehouse) {
+  return http.get('/warehouse/shelf/structure', {
+    params: warehouse ? { warehouse } : {},
+  })
+}
 
 /**
  * 从 SKU 出发：商品在某仓库存树里的分布（只含有货的分支）

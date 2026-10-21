@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 貨架管理 · 商品位置
+ * 倉庫作業中心 / 智能查詢 · 商品位置（两个菜单入口，同一个页面）
  *
  * 入口：从 SKU 开始 —— 扫商品 → 看它在仓库存树里的分布（Odoo 式多层分组列表）
  *   HSD4/庫存（合计）
@@ -24,6 +24,7 @@ import { productRows } from './shelfRows'
 
 const route = useRoute()
 const router = useRouter()
+const PRODUCT_ROUTES = ['shelf-product', 'query-product']
 
 const query = ref('')
 const loading = ref(false)
@@ -77,7 +78,8 @@ function submit(q = query.value) {
 watch(
   () => [route.name, route.query.q, route.query.warehouse],
   ([name, q, warehouse]) => {
-    if (name === 'shelf-product' && q) load(q, warehouse)
+    // 两个入口（倉庫作業中心 / 智能查詢）是同一个页面
+    if (PRODUCT_ROUTES.includes(name) && q) load(q, warehouse)
   },
   { immediate: true },
 )

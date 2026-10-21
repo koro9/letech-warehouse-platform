@@ -45,12 +45,15 @@ const routes = [
 
       // ===== 智能查詢（直连 Odoo 庫存） =====
       { path: 'query', name: 'query-home', component: () => import('@/views/query/SmartQuery.vue'), meta: { system: 'query' } },
+      // 商品位置在智能查詢下也有入口，同一个页面（找货时不用切到倉庫作業中心）
+      { path: 'query/product-bins', name: 'query-product', component: () => import('@/views/shelf/ProductBins.vue'), meta: { system: 'query' } },
 
       // ===== 每日盤點 =====
       { path: 'stocktake', name: 'stocktake', component: () => import('@/views/stocktake/Stocktake.vue'), meta: { system: 'stocktake' } },
 
-      // ===== 貨架管理（仓内整理：板/格子 = Odoo 子库位） =====
-      { path: 'shelf',           name: 'shelf-product',   component: () => import('@/views/shelf/ProductBins.vue'), meta: { system: 'shelf' } },
+      // ===== 倉庫作業中心（板/格子 = Odoo 子库位；首页 = 货架结构） =====
+      { path: 'shelf',           name: 'shelf-structure', component: () => import('@/views/shelf/ShelfStructure.vue'), meta: { system: 'shelf' } },
+      { path: 'shelf/product',   name: 'shelf-product',   component: () => import('@/views/shelf/ProductBins.vue'), meta: { system: 'shelf' } },
       { path: 'shelf/location',  name: 'shelf-location',  component: () => import('@/views/shelf/ShelfLookup.vue'), meta: { system: 'shelf' } },
       { path: 'shelf/unshelved', name: 'shelf-unshelved', component: () => import('@/views/shelf/Unshelved.vue'),   meta: { system: 'shelf' } },
     ],

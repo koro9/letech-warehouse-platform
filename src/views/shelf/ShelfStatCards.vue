@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 貨架管理顶部的数字卡片（照仓库需求 PDF 的「先给结论再给明细」）
+ * 倉庫作業中心顶部的数字卡片（照仓库需求 PDF 的「先给结论再给明细」）
  *
  * stats: [{ label, value, unit?, tone? }]
  *   tone: 'teal'（默认）| 'amber'（已预留）| 'warn'（未上架等需要注意，整卡变黄）| 'muted'

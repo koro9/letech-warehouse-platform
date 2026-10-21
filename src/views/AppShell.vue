@@ -54,7 +54,8 @@ function prefetchViews() {
       import('@/views/query/SmartQuery.vue'),
       // Stocktake
       import('@/views/stocktake/Stocktake.vue'),
-      // Shelf
+      // Shelf（倉庫作業中心）
+      import('@/views/shelf/ShelfStructure.vue'),
       import('@/views/shelf/ProductBins.vue'),
       import('@/views/shelf/ShelfLookup.vue'),
       import('@/views/shelf/Unshelved.vue'),
@@ -70,7 +71,7 @@ const systems = [
   { key: 'receiving', label: '📦 PO 收貨平台',   shortLabel: '📦 收貨', home: { name: 'receiving-dashboard' } },
   { key: 'query',     label: '🔍 智能查詢',       shortLabel: '🔍 查詢', home: { name: 'query-home' } },
   { key: 'stocktake', label: '📋 每日盤點',       shortLabel: '📋 盤點', home: { name: 'stocktake' } },
-  { key: 'shelf',     label: '🗄️ 貨架管理',       shortLabel: '🗄️ 貨架', home: { name: 'shelf-product' } },
+  { key: 'shelf',     label: '🏭 倉庫作業中心',   shortLabel: '🏭 倉庫', home: { name: 'shelf-structure' } },
 ]
 
 // 每个系统的侧边栏项 — 跟 demo 顺序对齐
@@ -102,13 +103,15 @@ const sidebars = {
     { name: 'receiving-drafts',    label: '3PL Draft',      icon: '📝' },
   ],
   query: [
-    { name: 'query-home', label: '智能查詢中心', icon: '🔍' },
+    { name: 'query-home',    label: '智能查詢中心', icon: '🔍' },
+    { name: 'query-product', label: '商品位置',     icon: '📍' },
   ],
   stocktake: [
     { name: 'stocktake', label: '每日盤點', icon: '📋' },
   ],
-  // 两个入口共用同一套操作（上架 / 轉移 / 移除位置），只是起点不同
+  // 倉庫作業中心：首页是货架结构；商品位置在智能查詢下也有同一个入口
   shelf: [
+    { name: 'shelf-structure', label: '貨架結構',   icon: '🧱' },
     { name: 'shelf-product',   label: '商品位置',   icon: '📍' },
     { name: 'shelf-location',  label: '貨架查詢',   icon: '🗄️' },
     { name: 'shelf-unshelved', label: '未上架清單', icon: '📥' },
@@ -126,7 +129,7 @@ const sectionTitle = computed(() => {
   if (currentSystem.value === 'receiving') return 'PO 收貨'
   if (currentSystem.value === 'query') return '查詢工具'
   if (currentSystem.value === 'stocktake') return '每日盤點'
-  if (currentSystem.value === 'shelf') return '貨架管理'
+  if (currentSystem.value === 'shelf') return '倉庫作業'
   return 'MENU'
 })
 

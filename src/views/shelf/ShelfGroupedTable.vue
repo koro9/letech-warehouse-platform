@@ -1,21 +1,30 @@
 <script setup>
 /**
- * 貨架管理共用的 Odoo 式多层分组列表
+ * 倉庫作業中心共用的 Odoo 式多层分组列表
  *
  * 输入：shelfRows.js 拍平后的 rows
  * 行为：
  *   - group 行点击 → 收合 / 展开它下面所有行
  *   - leaf 行若 collapsible（有批次）→ 点 ▸ 展开 sub 行，默认收起
  *   - 位置名可点 → emit('open-location', id)；SKU 标签「他處」可点 → emit('open-sku', sku)
- * 手机上隐藏「已預留」「最早到期」两栏，只留 位置/商品、在庫、可轉
+ * 数字栏可通过 columns 自定义（货架结构页用 下層位置 / SKU 數）；默认是库存栏：
+ *   在庫 / 已預留 / 可轉 / 最早到期，手机上隐藏「已預留」「最早到期」
  */
 import { ref, watch } from 'vue'
-import { fmtQty } from './shelfRows'
+import { STOCK_COLUMNS } from './shelfRows'
 
 const props = defineProps({
   rows: { type: Array, required: true },
   labelTitle: { type: String, default: '位置' },
+  columns: { type: Array, default: () => STOCK_COLUMNS },
 })
+
+function thClass(col) {
+  return [col.align === 'left' ? 'text-left' : 'text-right', col.width || '', col.mobileHidden ? 'hidden sm:table-cell' : '']
+}
+function tdClass(col, row) {
+  return [col.align === 'left' ? 'text-left' : 'text-right', col.mobileHidden ? 'hidden sm:table-cell' : '', col.cls ? col.cls(row) : '']
+}
 const emit = defineEmits(['open-location', 'open-sku'])
 
 const collapsed = ref(new Set())
@@ -54,10 +63,7 @@ function indent(row) {
         <thead>
           <tr class="bg-[#EAF4F1] text-[#2F6B5F] text-xs lg:text-[13px]">
             <th class="text-left font-bold px-4 py-3">{{ labelTitle }}</th>
-            <th class="text-right font-bold px-4 py-3 w-20 lg:w-24">在庫</th>
-            <th class="text-right font-bold px-4 py-3 w-24 hidden sm:table-cell">已預留</th>
-            <th class="text-right font-bold px-4 py-3 w-20 lg:w-24">可轉</th>
-            <th class="text-left font-bold px-4 py-3 w-32 hidden sm:table-cell">最早到期</th>
+            <th v-for="col in columns" :key="col.key" class="font-bold px-4 py-3" :class="thClass(col)">{{ col.label }}</th>
           </tr>
         </thead>
         <tbody>
@@ -107,12 +113,7 @@ function indent(row) {
                   </template>
                 </div>
               </td>
-              <td class="px-4 py-2.5 text-right font-mono tabular-nums">{{ fmtQty(row.qty?.on_hand) }}</td>
-              <td class="px-4 py-2.5 text-right font-mono tabular-nums hidden sm:table-cell"
-                  :class="row.qty?.reserved ? 'text-amber-600' : 'text-gray-300'">{{ fmtQty(row.qty?.reserved) }}</td>
-              <td class="px-4 py-2.5 text-right font-mono tabular-nums"
-                  :class="row.kind !== 'sub' && row.qty?.available > 0 ? 'text-emerald-700' : ''">{{ fmtQty(row.qty?.available) }}</td>
-              <td class="px-4 py-2.5 font-mono text-xs lg:text-[13px] hidden sm:table-cell text-gray-500 font-normal">{{ row.expiry || '—' }}</td>
+              <td v-for="col in columns" :key="col.key" class="px-4 py-2.5 font-mono tabular-nums" :class="tdClass(col, row)">{{ col.value(row) }}</td>
             </tr>
           </template>
         </tbody>

@@ -1,5 +1,5 @@
 /**
- * 貨架管理 — 把后端返回的库位树「拍平」成分组列表的行
+ * 倉庫作業中心 — 把后端返回的库位树「拍平」成分组列表的行
  *
  * 两个页面（商品位置 / 貨架查詢）都用 Odoo 式多层分组列表展示：
  *   group 行 = 分组（板、带下层的位置），显示合计，可收合
@@ -26,6 +26,19 @@ export function fmtQty(n) {
   if (Number.isInteger(v)) return String(v)
   return v.toFixed(2).replace(/\.?0+$/, '')
 }
+
+// 分组表默认的库存栏（ShelfGroupedTable 的 columns 默认值）
+// 列定义：{ key, label, align, width, mobileHidden, value(row), cls(row) }
+export const STOCK_COLUMNS = [
+  { key: 'on_hand', label: '在庫', width: 'w-20 lg:w-24', value: r => fmtQty(r.qty?.on_hand) },
+  { key: 'reserved', label: '已預留', width: 'w-24', mobileHidden: true,
+    value: r => fmtQty(r.qty?.reserved), cls: r => (r.qty?.reserved ? 'text-amber-600' : 'text-gray-300') },
+  { key: 'available', label: '可轉', width: 'w-20 lg:w-24',
+    value: r => fmtQty(r.qty?.available),
+    cls: r => (r.kind !== 'sub' && r.qty?.available > 0 ? 'text-emerald-700' : '') },
+  { key: 'expiry', label: '最早到期', align: 'left', width: 'w-32', mobileHidden: true,
+    value: r => r.expiry || '—', cls: () => 'text-xs lg:text-[13px] text-gray-500 font-normal' },
+]
 
 function hasQty(q) {
   return !!q && ((Number(q.on_hand) || 0) !== 0 || (Number(q.reserved) || 0) !== 0)
@@ -203,5 +216,49 @@ export function locationRowsBySku(tree, products) {
         qty: qtyOf(p.it), expiry: p.it.earliest_expiry,
       }))
   }
+  return rows
+}
+
+// ============================================================
+// 货架结构：整个仓库存树 → 行（只有位置，不带商品明细）
+// ============================================================
+/**
+ * 行额外带 cells: { sub, sku } 给结构页的「下層位置」「SKU 數」两栏
+ * 根库位本层 = 未上架；带下层又有本层货的位置，本层单独成一行「（本層）」
+ */
+export function structureRows(tree) {
+  const rows = []
+  if (!tree) return rows
+
+  function walk(node, depth, parents, isRoot) {
+    const key = `n${node.id}`
+    const t = node.total
+    const empty = !hasQty(t)
+    const hasKids = node.children.length > 0
+    rows.push({
+      key, kind: hasKids ? 'group' : 'leaf', depth, parents,
+      label: isRoot ? node.full_name : node.name,
+      // 根库位不给链接：点了会把几千个未上架 SKU 一起拉出来
+      locationId: isRoot ? null : node.id,
+      tags: empty && !isRoot ? [{ text: '空', cls: TAG.empty }] : [],
+      qty: qtyOf(t),
+      cells: { sub: t.location_count, sku: t.sku_count },
+      collapsible: hasKids,
+      muted: empty && !isRoot,
+    })
+    const inner = [...parents, key]
+    if (hasQty(node.own) && (isRoot || hasKids)) {
+      rows.push({
+        key: `o${node.id}`, kind: 'leaf', depth: depth + 1, parents: inner,
+        label: isRoot ? '未上架' : `${node.name}（本層）`,
+        tags: isRoot ? [{ text: '庫存本層', cls: TAG.warn }] : [],
+        qty: qtyOf(node.own),
+        cells: { sub: null, sku: node.own.sku_count },
+      })
+    }
+    node.children.forEach(c => walk(c, depth + 1, inner, false))
+  }
+
+  walk(tree, 0, [], true)
   return rows
 }
