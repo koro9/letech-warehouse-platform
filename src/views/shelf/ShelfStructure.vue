@@ -96,10 +96,12 @@ function openLocation(id) {
           :rows="rows"
           :columns="columns"
           label-title="位置"
+          action-label="查看貨架"
           @open-location="openLocation"
+          @row-action="row => openLocation(row.locationId)"
         />
         <p class="text-xs lg:text-sm text-gray-400 mt-3 leading-relaxed">
-          點位置名稱查看上面的商品；點分組可收合。板／格子的新增、修改請在 Odoo「庫存 → 配置 → 地點」。
+          按「查看貨架」查看該位置上的商品；點分組可收合。板／格子的新增、修改請在 Odoo「庫存 → 配置 → 地點」。
         </p>
       </template>
     </template>
