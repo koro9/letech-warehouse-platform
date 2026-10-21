@@ -18,7 +18,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { shelf } from '@/api'
 import { showToast } from '@/composables/useToast'
 import ShelfGroupedTable from './ShelfGroupedTable.vue'
-import { fmtQty, locationRowsByLocation, locationRowsBySku } from './shelfRows'
+import ShelfStatCards from './ShelfStatCards.vue'
+import { locationRowsByLocation, locationRowsBySku } from './shelfRows'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,6 +36,17 @@ const rows = computed(() => {
   return groupBy.value === 'sku'
     ? locationRowsBySku(result.value.tree, result.value.products)
     : locationRowsByLocation(result.value.tree, result.value.products)
+})
+
+const stats = computed(() => {
+  const sm = result.value?.summary
+  if (!sm) return []
+  return [
+    { label: '合計在庫', value: sm.on_hand, unit: '件' },
+    { label: 'SKU 數', value: sm.sku_count, unit: '個' },
+    { label: '位置數', value: sm.location_count, unit: '個' },
+    { label: '空位置', value: sm.empty_count, unit: '個', tone: 'muted' },
+  ]
 })
 
 async function load({ q, locationId }) {
@@ -97,54 +109,59 @@ onActivated(focusInput)
 </script>
 
 <template>
-  <div class="p-4 sm:p-6 lg:p-10 max-w-4xl">
-    <h2 class="text-lg sm:text-xl font-bold mb-4">貨架查詢</h2>
+  <div class="p-4 sm:p-6 lg:px-10 lg:py-8 max-w-[1400px]">
+    <h2 class="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800 mb-4 lg:mb-5">貨架查詢</h2>
 
     <form class="flex gap-2 sm:gap-3 mb-5" @submit.prevent="submit">
       <input
         ref="inputEl"
         v-model="query"
         type="text"
-        class="g-input flex-1 min-w-0"
+        class="g-input flex-1 min-w-0 lg:!py-3"
         placeholder="掃貨架條碼或輸入位置名稱（如 T1板、T1-1），按 Enter 查詢"
         autocomplete="off"
         :disabled="loading"
       />
-      <button type="submit" class="g-btn g-btn-teal !px-5" :disabled="loading || !query.trim()">查詢</button>
+      <button type="submit" class="g-btn g-btn-teal !px-6 lg:!px-10" :disabled="loading || !query.trim()">查詢</button>
     </form>
 
     <!-- 查不到 / 多个候选 -->
-    <div v-if="error" class="g-card p-4 mb-5 border-red-200 bg-red-50 text-sm">
+    <div v-if="error" class="rounded-xl border border-red-200 bg-red-50 p-4 mb-5 text-sm">
       <p class="text-red-700 font-semibold">{{ error.msg }}</p>
       <ul v-if="error.suggestions.length" class="mt-2 space-y-1">
         <li v-for="s in error.suggestions" :key="s.id">
-          <button type="button" class="text-teal hover:underline" @click="openLocation(s.id)">{{ s.full_name }}</button>
+          <button type="button" class="text-[#2F6B5F] hover:underline" @click="openLocation(s.id)">{{ s.full_name }}</button>
           <span v-if="s.barcode" class="font-mono text-xs text-gray-400 ml-2">{{ s.barcode }}</span>
         </li>
       </ul>
     </div>
 
     <template v-if="result">
-      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <!-- 位置资讯 -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 lg:px-5 lg:py-4 mb-3 flex items-center justify-between gap-3 flex-wrap">
         <div class="min-w-0">
-          <span class="font-bold text-gray-800">{{ result.location.full_name }}</span>
-          <span class="text-sm text-gray-500 ml-2 tabular-nums">
-            合計 {{ fmtQty(result.summary.on_hand) }} 件
-            · {{ result.summary.sku_count }} 個 SKU
-            · {{ result.summary.location_count }} 個位置<template v-if="result.summary.empty_count">（{{ result.summary.empty_count }} 個空）</template>
-          </span>
+          <div class="text-base lg:text-lg font-bold text-gray-800">{{ result.location.full_name }}</div>
+          <div v-if="result.location.barcode" class="font-mono text-xs lg:text-sm text-gray-500 mt-0.5">條碼 {{ result.location.barcode }}</div>
         </div>
-        <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm flex-shrink-0" role="group" aria-label="分組方式">
+        <span v-if="result.warehouse" class="bg-[#EAF4F1] text-[#2F6B5F] text-xs lg:text-sm font-bold rounded-lg px-3 py-1">{{ result.warehouse.code }}</span>
+      </div>
+
+      <ShelfStatCards :stats="stats" />
+
+      <!-- 分组方式 -->
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <span class="text-xs lg:text-sm text-gray-500">分組方式</span>
+        <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden text-sm bg-white" role="group" aria-label="分組方式">
           <button
             type="button"
-            class="px-3 py-1.5"
-            :class="groupBy === 'location' ? 'bg-teal text-white font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            class="px-4 py-1.5"
+            :class="groupBy === 'location' ? 'bg-teal text-white font-semibold' : 'text-gray-600 hover:bg-gray-50'"
             @click="groupBy = 'location'"
           >按位置</button>
           <button
             type="button"
-            class="px-3 py-1.5 border-l border-gray-200"
-            :class="groupBy === 'sku' ? 'bg-teal text-white font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            class="px-4 py-1.5 border-l border-gray-200"
+            :class="groupBy === 'sku' ? 'bg-teal text-white font-semibold' : 'text-gray-600 hover:bg-gray-50'"
             @click="groupBy = 'sku'"
           >按商品</button>
         </div>
@@ -156,13 +173,14 @@ onActivated(focusInput)
         @open-location="openLocation"
         @open-sku="openSku"
       />
-      <p class="text-xs text-gray-400 mt-2 leading-relaxed">
+      <p class="text-xs lg:text-sm text-gray-400 mt-3 leading-relaxed">
+        位置數量為實際在庫，並非可用數量。
         <span class="text-violet-700">本板 N 處</span>：同一商品放在本板多個位置；
         <span class="text-gray-600">他處 +X</span>：本範圍以外同倉還有，點擊可查看該商品全部位置。
       </p>
     </template>
 
-    <div v-else-if="!error && !loading" class="g-card p-5 text-sm text-gray-500 leading-relaxed">
+    <div v-else-if="!error && !loading" class="bg-white rounded-xl border border-gray-200 p-6 text-sm text-gray-500 leading-relaxed">
       掃板或格子條碼，查看上面有哪些商品、各有多少件。查板時會一併列出它下面所有格子。
     </div>
   </div>

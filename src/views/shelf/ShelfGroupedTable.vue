@@ -43,78 +43,80 @@ function caret(row) {
 
 function indent(row) {
   // 每层缩进 20px；没有箭头的行补齐箭头宽度，文字对齐
-  return { paddingLeft: `${12 + row.depth * 20 + (row.collapsible ? 0 : 16)}px` }
+  return { paddingLeft: `${16 + row.depth * 22 + (row.collapsible ? 0 : 24)}px` }
 }
 </script>
 
 <template>
-  <div class="g-card overflow-x-auto">
-    <table class="w-full text-sm border-collapse">
-      <thead>
-        <tr class="text-xs text-gray-500 bg-gray-50 border-b-2 border-gray-100">
-          <th class="text-left font-bold px-3 py-2.5">{{ labelTitle }}</th>
-          <th class="text-right font-bold px-3 py-2.5 w-16 sm:w-20">在庫</th>
-          <th class="text-right font-bold px-3 py-2.5 w-20 hidden sm:table-cell">已預留</th>
-          <th class="text-right font-bold px-3 py-2.5 w-16 sm:w-20">可轉</th>
-          <th class="text-left font-bold px-3 py-2.5 w-28 hidden sm:table-cell">最早到期</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template v-for="row in rows" :key="row.key">
-          <tr
-            v-if="isVisible(row)"
-            class="border-b border-gray-100"
-            :class="{
-              'bg-gray-50 font-semibold cursor-pointer hover:bg-gray-100': row.kind === 'group',
-              'hover:bg-slate-50': row.kind === 'leaf',
-              'bg-white text-xs text-gray-500': row.kind === 'sub',
-              'text-gray-400': row.muted,
-            }"
-            @click="row.kind === 'group' && toggle(row)"
-          >
-            <td class="py-2 pr-3" :style="indent(row)">
-              <div class="flex items-center flex-wrap gap-x-1.5 gap-y-1">
-                <button
-                  v-if="row.collapsible"
-                  type="button"
-                  class="w-4 text-gray-400 text-xs flex-shrink-0"
-                  :aria-label="collapsed.has(row.key) ? '展開' : '收合'"
-                  @click.stop="toggle(row)"
-                >{{ caret(row) }}</button>
-
-                <button
-                  v-if="row.locationId"
-                  type="button"
-                  class="text-left hover:text-teal hover:underline"
-                  title="查看此位置的貨"
-                  @click.stop="emit('open-location', row.locationId)"
-                >{{ row.label }}</button>
-                <span v-else>{{ row.label }}</span>
-
-                <span v-if="row.mono" class="font-mono text-xs text-gray-400">{{ row.mono }}</span>
-
-                <template v-for="tag in row.tags || []" :key="tag.text">
-                  <button
-                    v-if="tag.sku"
-                    type="button"
-                    class="text-[11px] font-semibold px-1.5 rounded-md whitespace-nowrap leading-relaxed"
-                    :class="tag.cls"
-                    title="查看此商品的全部位置"
-                    @click.stop="emit('open-sku', tag.sku)"
-                  >{{ tag.text }}</button>
-                  <span v-else class="text-[11px] font-semibold px-1.5 rounded-md whitespace-nowrap leading-relaxed" :class="tag.cls">{{ tag.text }}</span>
-                </template>
-              </div>
-            </td>
-            <td class="px-3 py-2 text-right font-mono tabular-nums">{{ fmtQty(row.qty?.on_hand) }}</td>
-            <td class="px-3 py-2 text-right font-mono tabular-nums hidden sm:table-cell"
-                :class="row.qty?.reserved ? 'text-amber-600' : 'text-gray-300'">{{ fmtQty(row.qty?.reserved) }}</td>
-            <td class="px-3 py-2 text-right font-mono tabular-nums"
-                :class="row.kind !== 'sub' && row.qty?.available > 0 ? 'text-emerald-600' : ''">{{ fmtQty(row.qty?.available) }}</td>
-            <td class="px-3 py-2 font-mono text-xs hidden sm:table-cell text-gray-500">{{ row.expiry || '—' }}</td>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm lg:text-[15px] border-collapse">
+        <thead>
+          <tr class="bg-[#EAF4F1] text-[#2F6B5F] text-xs lg:text-[13px]">
+            <th class="text-left font-bold px-4 py-3">{{ labelTitle }}</th>
+            <th class="text-right font-bold px-4 py-3 w-20 lg:w-24">在庫</th>
+            <th class="text-right font-bold px-4 py-3 w-24 hidden sm:table-cell">已預留</th>
+            <th class="text-right font-bold px-4 py-3 w-20 lg:w-24">可轉</th>
+            <th class="text-left font-bold px-4 py-3 w-32 hidden sm:table-cell">最早到期</th>
           </tr>
-        </template>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <template v-for="row in rows" :key="row.key">
+            <tr
+              v-if="isVisible(row)"
+              class="border-t border-gray-100"
+              :class="{
+                'bg-[#F7F9F8] font-semibold text-gray-800 cursor-pointer hover:bg-[#EEF4F2]': row.kind === 'group',
+                'text-gray-700 hover:bg-slate-50': row.kind === 'leaf',
+                'bg-white text-xs lg:text-[13px] text-gray-500': row.kind === 'sub',
+                '!text-gray-400': row.muted,
+              }"
+              @click="row.kind === 'group' && toggle(row)"
+            >
+              <td class="py-2.5 pr-4" :style="indent(row)">
+                <div class="flex items-center flex-wrap gap-x-2 gap-y-1">
+                  <button
+                    v-if="row.collapsible"
+                    type="button"
+                    class="w-4 text-gray-500 text-sm leading-none flex-shrink-0 hover:text-[#2F6B5F]"
+                    :aria-label="collapsed.has(row.key) ? '展開' : '收合'"
+                    @click.stop="toggle(row)"
+                  >{{ caret(row) }}</button>
+
+                  <button
+                    v-if="row.locationId"
+                    type="button"
+                    class="text-left hover:text-[#2F6B5F] hover:underline underline-offset-2"
+                    title="查看此位置上的所有商品"
+                    @click.stop="emit('open-location', row.locationId)"
+                  >{{ row.label }}</button>
+                  <span v-else>{{ row.label }}</span>
+
+                  <span v-if="row.mono" class="font-mono text-xs text-gray-400 font-normal">{{ row.mono }}</span>
+
+                  <template v-for="tag in row.tags || []" :key="tag.text">
+                    <button
+                      v-if="tag.sku"
+                      type="button"
+                      class="text-[11px] lg:text-xs font-semibold px-2 py-px rounded-md whitespace-nowrap"
+                      :class="tag.cls"
+                      title="查看此商品的全部位置"
+                      @click.stop="emit('open-sku', tag.sku)"
+                    >{{ tag.text }}</button>
+                    <span v-else class="text-[11px] lg:text-xs font-semibold px-2 py-px rounded-md whitespace-nowrap" :class="tag.cls">{{ tag.text }}</span>
+                  </template>
+                </div>
+              </td>
+              <td class="px-4 py-2.5 text-right font-mono tabular-nums">{{ fmtQty(row.qty?.on_hand) }}</td>
+              <td class="px-4 py-2.5 text-right font-mono tabular-nums hidden sm:table-cell"
+                  :class="row.qty?.reserved ? 'text-amber-600' : 'text-gray-300'">{{ fmtQty(row.qty?.reserved) }}</td>
+              <td class="px-4 py-2.5 text-right font-mono tabular-nums"
+                  :class="row.kind !== 'sub' && row.qty?.available > 0 ? 'text-emerald-700' : ''">{{ fmtQty(row.qty?.available) }}</td>
+              <td class="px-4 py-2.5 font-mono text-xs lg:text-[13px] hidden sm:table-cell text-gray-500 font-normal">{{ row.expiry || '—' }}</td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
