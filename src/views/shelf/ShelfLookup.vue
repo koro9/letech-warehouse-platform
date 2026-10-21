@@ -18,6 +18,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { shelf } from '@/api'
 import { showToast } from '@/composables/useToast'
 import ShelfGroupedTable from './ShelfGroupedTable.vue'
+import ShelfMoveDialog from './ShelfMoveDialog.vue'
 import ShelfStatCards from './ShelfStatCards.vue'
 import { locationRowsByLocation, locationRowsBySku } from './shelfRows'
 
@@ -95,6 +96,16 @@ function openSku(sku) {
   router.push({ name: 'shelf-product', query: { q: sku, ...(warehouse ? { warehouse } : {}) } })
 }
 
+// 轉出弹窗：按位置 / 按商品两种分组的商品行都带 action（来源 = 商品所在位置）
+const moving = ref(null)
+function onRowAction(row) {
+  if (row.action) moving.value = { ...row.action }
+}
+function onMoved() {
+  moving.value = null
+  load({ locationId: result.value.location.id })
+}
+
 watch(
   () => [route.name, route.query.q, route.query.location_id],
   ([name, q, locationId]) => {
@@ -170,8 +181,10 @@ onActivated(focusInput)
       <ShelfGroupedTable
         :rows="rows"
         :label-title="groupBy === 'sku' ? '商品 / 位置' : '位置 / 商品'"
+        with-actions
         @open-location="openLocation"
         @open-sku="openSku"
+        @row-action="onRowAction"
       />
       <p class="text-xs lg:text-sm text-gray-400 mt-3 leading-relaxed">
         位置數量為實際在庫，並非可用數量。
@@ -183,5 +196,6 @@ onActivated(focusInput)
     <div v-else-if="!error && !loading" class="bg-white rounded-xl border border-gray-200 p-6 text-sm text-gray-500 leading-relaxed">
       掃板或格子條碼，查看上面有哪些商品、各有多少件。查板時會一併列出它下面所有格子。
     </div>
+    <ShelfMoveDialog :move="moving" @close="moving = null" @done="onMoved" />
   </div>
 </template>

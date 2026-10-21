@@ -91,3 +91,32 @@ export function getUnshelved({ warehouse, q, scope, sort, page, pageSize } = {})
   if (pageSize) params.page_size = pageSize
   return http.get('/warehouse/shelf/unshelved', { params })
 }
+
+/**
+ * 目标位置候选（上架 / 轉出弹窗里扫码或输入）
+ *   GET /api/warehouse/shelf/locations?q=&warehouse=
+ *   200 → { warehouse, locations: [{ id, name, full_name, barcode }], has_more }
+ *   条码精确命中排第一；q 为空列出全部板 / 格子
+ */
+export function getTargetLocations(q, warehouse) {
+  const params = {}
+  if (q) params.q = q
+  if (warehouse) params.warehouse = warehouse
+  return http.get('/warehouse/shelf/locations', { params })
+}
+
+/**
+ * 上架 / 轉出：后台开一张「貨架移動」单（HSD4/BIN/…）并立即完成
+ *   POST /api/warehouse/shelf/move
+ *   body { sku, source_location_id, dest_location_id, qty }
+ *   200 → { picking, sku, qty, source, dest, source_left }
+ *   400 insufficient_qty（带 available）/ same_location / shelf_move_type_missing / move_failed …
+ *   409 busy（同一商品有人正在移动）
+ *
+ * idempotencyKey：同一次确认重试时传同一个 key，后端只执行一次（防连按 / 网络重发）
+ */
+export function moveStock({ sku, sourceLocationId, destLocationId, qty }, idempotencyKey) {
+  return http.post('/warehouse/shelf/move',
+    { sku, source_location_id: sourceLocationId, dest_location_id: destLocationId, qty },
+    idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined)
+}

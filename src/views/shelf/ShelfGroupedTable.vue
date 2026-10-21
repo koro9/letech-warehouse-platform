@@ -17,9 +17,12 @@ const props = defineProps({
   rows: { type: Array, required: true },
   labelTitle: { type: String, default: '位置' },
   columns: { type: Array, default: () => STOCK_COLUMNS },
-  // 可选的行尾按钮（如货架结构的「查看」）：只对带位置的行显示，点了 emit('row-action', row)
-  // 不传就没有这一栏，其他页面不受影响
+  // 可选的行尾按钮栏，点了 emit('row-action', row)：
+  //   actionLabel  所有带位置的行用同一个按钮（货架结构的「查看貨架」）
+  //   withActions  按行决定：行上有 row.action = { label, … } 才显示（上架 / 轉出）
+  // 两个都不传就没有这一栏
   actionLabel: { type: String, default: '' },
+  withActions: { type: Boolean, default: false },
 })
 
 function thClass(col) {
@@ -67,7 +70,7 @@ function indent(row) {
           <tr class="bg-[#EAF4F1] text-[#2F6B5F] text-xs lg:text-[13px]">
             <th class="text-left font-bold px-4 py-3">{{ labelTitle }}</th>
             <th v-for="col in columns" :key="col.key" class="font-bold px-4 py-3" :class="thClass(col)">{{ col.label }}</th>
-            <th v-if="actionLabel" class="px-4 py-3 w-24"></th>
+            <th v-if="actionLabel || withActions" class="px-4 py-3 w-24"></th>
           </tr>
         </thead>
         <tbody>
@@ -118,13 +121,14 @@ function indent(row) {
                 </div>
               </td>
               <td v-for="col in columns" :key="col.key" class="px-4 py-2.5 font-mono tabular-nums" :class="tdClass(col, row)">{{ col.value(row) }}</td>
-              <td v-if="actionLabel" class="px-4 py-2 text-right">
+              <td v-if="actionLabel || withActions" class="px-4 py-2 text-right">
                 <button
-                  v-if="row.locationId"
+                  v-if="withActions ? row.action : row.locationId"
                   type="button"
-                  class="g-row-btn g-row-btn-teal whitespace-nowrap"
+                  class="g-row-btn whitespace-nowrap"
+                  :class="row.action?.tone === 'amber' ? 'g-row-btn-amber' : 'g-row-btn-teal'"
                   @click.stop="emit('row-action', row)"
-                >{{ actionLabel }} ›</button>
+                >{{ withActions ? row.action.label : actionLabel + ' ›' }}</button>
               </td>
             </tr>
           </template>

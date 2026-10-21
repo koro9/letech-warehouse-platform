@@ -14,6 +14,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { shelf } from '@/api'
 import { showToast } from '@/composables/useToast'
+import ShelfMoveDialog from './ShelfMoveDialog.vue'
 import ShelfStatCards from './ShelfStatCards.vue'
 import { fmtQty } from './shelfRows'
 
@@ -105,6 +106,19 @@ function goPage(p) {
   setCond({ page: p })
 }
 
+// 上架弹窗：来源 = 未上架（库存根库位，后端在 warehouse.stock_location_id 返回）
+const moving = ref(null)
+function putaway(p) {
+  moving.value = {
+    kind: 'putaway', sku: p.sku, name: p.name,
+    sourceId: result.value.warehouse.stock_location_id, sourceLabel: '未上架', available: p.available,
+  }
+}
+function onMoved() {
+  moving.value = null
+  load()
+}
+
 function openProduct(sku) {
   router.push({ name: 'shelf-product', query: { q: sku } })
 }
@@ -181,7 +195,7 @@ watch(() => route.fullPath, () => {
               <th class="text-right font-bold px-4 py-3 w-24">已上架</th>
               <th class="text-right font-bold px-4 py-3 w-24 hidden sm:table-cell">合計在庫</th>
               <th class="text-left font-bold px-4 py-3 w-32 hidden lg:table-cell">最早到期</th>
-              <th class="px-4 py-3 w-28"></th>
+              <th class="px-4 py-3 w-44"></th>
             </tr>
           </thead>
           <tbody>
@@ -198,8 +212,9 @@ watch(() => route.fullPath, () => {
                   :class="p.shelved ? 'text-emerald-700' : 'text-gray-300'">{{ fmtQty(p.shelved) }}</td>
               <td class="px-4 py-2.5 text-right font-mono tabular-nums hidden sm:table-cell">{{ fmtQty(p.total) }}</td>
               <td class="px-4 py-2.5 font-mono text-xs lg:text-[13px] text-gray-500 hidden lg:table-cell">{{ p.earliest_expiry || '—' }}</td>
-              <td class="px-4 py-2 text-right">
-                <button type="button" class="g-row-btn g-row-btn-teal whitespace-nowrap" @click="openProduct(p.sku)">查看位置 ›</button>
+              <td class="px-4 py-2 text-right whitespace-nowrap">
+                <button v-if="p.available > 0" type="button" class="g-row-btn g-row-btn-amber mr-1.5" @click="putaway(p)">上架</button>
+                <button type="button" class="g-row-btn g-row-btn-teal" @click="openProduct(p.sku)">查看位置 ›</button>
               </td>
             </tr>
             <tr v-if="result && !result.products.length">
@@ -233,7 +248,9 @@ watch(() => route.fullPath, () => {
     </div>
 
     <p class="text-xs lg:text-sm text-gray-400 mt-3 leading-relaxed">
-      未上架 = 仍放在庫存本層、未放入任何板／格子的數量。上架請在 Odoo 操作；按「查看位置」看該商品目前的分佈。
+      未上架 = 仍放在庫存本層、未放入任何板／格子的數量。按「上架」放到板／格子（系統自動開「貨架移動」單）；
+      按「查看位置」看該商品目前的分佈。已被訂單預留的數量不能上架。
     </p>
+    <ShelfMoveDialog :move="moving" @close="moving = null" @done="onMoved" />
   </div>
 </template>

@@ -19,6 +19,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { shelf } from '@/api'
 import { showToast } from '@/composables/useToast'
 import ShelfGroupedTable from './ShelfGroupedTable.vue'
+import ShelfMoveDialog from './ShelfMoveDialog.vue'
 import ShelfStatCards from './ShelfStatCards.vue'
 import { productRows } from './shelfRows'
 
@@ -98,6 +99,18 @@ const stats = computed(() => {
   ]
 })
 
+// 上架 / 轉出弹窗：行上的 action 带来源；商品就是当前查询的商品
+const moving = ref(null)
+function onRowAction(row) {
+  const p = result.value?.product
+  if (!row.action || !p) return
+  moving.value = { ...row.action, sku: p.sku, name: p.name }
+}
+function onMoved() {
+  moving.value = null
+  load(result.value.product.sku, result.value.warehouse.code)
+}
+
 function openLocation(id) {
   router.push({ name: 'shelf-location', query: { location_id: id } })
 }
@@ -156,15 +169,19 @@ function openLocation(id) {
         v-else
         :rows="rows"
         label-title="位置"
+        with-actions
         @open-location="openLocation"
+        @row-action="onRowAction"
       />
       <p class="text-xs lg:text-sm text-gray-400 mt-3">
-        位置數量為實際在庫，並非可用數量。點分組可收合；點格子前的 ▸ 展開批次；點位置名稱可查看該位置上的所有商品。
+        位置數量為實際在庫，並非可用數量。「上架」把未上架的貨放到板／格子，「轉出」把某個位置的貨移到另一個位置；
+        系統會自動開「貨架移動」單並完成。點格子前的 ▸ 展開批次；點位置名稱可查看該位置上的所有商品。
       </p>
     </template>
 
     <div v-else-if="!error && !loading" class="bg-white rounded-xl border border-gray-200 p-6 text-sm text-gray-500 leading-relaxed">
       掃商品條碼或輸入 SKU，查看該商品在各板／格子的數量、批次和到期日。
     </div>
+    <ShelfMoveDialog :move="moving" @close="moving = null" @done="onMoved" />
   </div>
 </template>

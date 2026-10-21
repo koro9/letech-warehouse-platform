@@ -40,6 +40,20 @@ export const STOCK_COLUMNS = [
     value: r => r.expiry || '—', cls: () => 'text-xs lg:text-[13px] text-gray-500 font-normal' },
 ]
 
+/**
+ * 行尾操作按钮（ShelfGroupedTable withActions 模式用）
+ *   上架 = 来源是未上架（库存根库位本层）；轉出 = 来源是某个板 / 格子本层
+ *   只有可转数量 > 0 才给按钮；sku / name 在按商品显示的行上才需要
+ */
+function moveAction(kind, sourceId, sourceLabel, available, extra = {}) {
+  if (!(Number(available) > 0)) return null
+  return {
+    label: kind === 'putaway' ? '上架' : '轉出',
+    tone: kind === 'putaway' ? 'amber' : 'teal',
+    kind, sourceId, sourceLabel, available: Number(available), ...extra,
+  }
+}
+
 function hasQty(q) {
   return !!q && ((Number(q.on_hand) || 0) !== 0 || (Number(q.reserved) || 0) !== 0)
 }
@@ -66,6 +80,8 @@ export function productRows(tree) {
       locationId: opts.noLink ? null : node.id,
       collapsible: lots.length > 0,
       startCollapsed: true,
+      action: moveAction(opts.noLink ? 'putaway' : 'transfer', node.id,
+                         opts.noLink ? '未上架' : label, node.own?.available),
     })
     lots.forEach((lot, i) => rows.push({
       key: `${key}-lot${i}`, kind: 'sub', depth: depth + 1,
@@ -129,12 +145,13 @@ export function locationRowsByLocation(tree, products) {
   if (!tree) return rows
   const isShelf = tree.children.length > 0
 
-  function itemRows(items, depth, parents) {
+  function itemRows(items, depth, parents, node) {
     items.forEach(it => rows.push({
       key: `${parents[parents.length - 1]}-${it.sku}`, kind: 'leaf', depth, parents,
       label: it.name, mono: it.sku, sku: it.sku,
       tags: itemTags(it.sku, products, isShelf),
       qty: qtyOf(it), expiry: it.earliest_expiry,
+      action: moveAction('transfer', node.id, node.name, it.available, { sku: it.sku, name: it.name }),
     }))
   }
 
@@ -160,9 +177,9 @@ export function locationRowsByLocation(tree, products) {
           key: okey, kind: 'group', depth: depth + 1, parents: inner,
           label: `${node.name}（本層）`, qty: qtyOf(node.own), collapsible: true,
         })
-        itemRows(items, depth + 2, [...inner, okey])
+        itemRows(items, depth + 2, [...inner, okey], node)
       } else {
-        itemRows(items, depth + 1, inner)
+        itemRows(items, depth + 1, inner, node)
       }
     }
     node.children.forEach(c => walk(c, depth + 1, inner))
@@ -214,6 +231,7 @@ export function locationRowsBySku(tree, products) {
         key: `${key}-${p.node.id}`, kind: 'leaf', depth: 1, parents: [key],
         label: p.rel, locationId: p.node.id === tree.id ? null : p.node.id,
         qty: qtyOf(p.it), expiry: p.it.earliest_expiry,
+        action: moveAction('transfer', p.node.id, p.rel, p.it.available, { sku, name }),
       }))
   }
   return rows
