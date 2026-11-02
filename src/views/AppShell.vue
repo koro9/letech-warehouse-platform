@@ -41,7 +41,6 @@ function prefetchViews() {
       import('@/views/dashboard/Labels.vue'),
       import('@/views/dashboard/Orders.vue'),
       import('@/views/dashboard/Inventory.vue'),
-      import('@/views/dashboard/Profile.vue'),
       import('@/views/dashboard/Admin.vue'),
       // Receiving
       import('@/views/receiving/Dashboard.vue'),
@@ -54,6 +53,9 @@ function prefetchViews() {
       import('@/views/query/SmartQuery.vue'),
       // Stocktake
       import('@/views/stocktake/Stocktake.vue'),
+      // 個人中心
+      import('@/views/me/Profile.vue'),
+      import('@/views/me/AppDownload.vue'),
       // Shelf（倉庫作業中心）
       import('@/views/shelf/ShelfStructure.vue'),
       import('@/views/shelf/ProductBins.vue'),
@@ -89,7 +91,6 @@ const sidebars = {
     { name: 'orders',    label: '運單',       icon: '📋' },
     // 庫存對比暂时隐藏（路由和组件保留，未来恢复时把这行解开即可）
     // { name: 'inventory', label: '庫存對比',   icon: '📊' },
-    { name: 'profile',   label: '個人資訊',   icon: '👤' },
     // 用户管理已迁移到 Odoo 后台维护；这里暂时隐藏（路由和 Admin.vue 保留，
     // 未来若 WMS 内部要做轻量用户管理，把这行解开即可）
     // { name: 'admin',     label: '管理',       icon: '👥', requires: 'type:internal' },
@@ -116,6 +117,11 @@ const sidebars = {
     { name: 'shelf-location',  label: '貨架查詢',   icon: '🗄️' },
     { name: 'shelf-unshelved', label: '未上架清單', icon: '📥' },
   ],
+  // 個人中心：不占顶部 tab，从右上角使用者按钮的菜单进入
+  me: [
+    { name: 'profile',      label: '個人資訊', icon: '👤' },
+    { name: 'app-download', label: '安卓 App', icon: '📱' },
+  ],
 }
 
 const currentSystem = computed(() => route.meta?.system || 'dashboard')
@@ -130,6 +136,7 @@ const sectionTitle = computed(() => {
   if (currentSystem.value === 'query') return '查詢工具'
   if (currentSystem.value === 'stocktake') return '每日盤點'
   if (currentSystem.value === 'shelf') return '倉庫作業'
+  if (currentSystem.value === 'me') return '個人中心'
   return 'MENU'
 })
 
@@ -140,7 +147,23 @@ function switchSystem(sys) {
 // auth.logout() 内部按 type 决定走 Odoo /web/session/logout 还是 /login，
 // 它会自己 window.location.href 跳转，不需要 router.push
 function handleLogout() {
+  userMenuOpen.value = false
   auth.logout()
+}
+
+// ============================================================
+// 右上角使用者菜单（個人中心入口 + 登出）
+// ============================================================
+// 原本点按钮就直接登出，容易误点；改成先弹菜单，登出放最后
+const userMenuOpen = ref(false)
+const USER_MENU = [
+  { name: 'profile',      label: '個人資訊', icon: '👤' },
+  { name: 'app-download', label: '安卓 App', icon: '📱' },
+]
+
+function goUserMenu(item) {
+  userMenuOpen.value = false
+  router.push({ name: item.name })
 }
 
 // ============================================================
@@ -151,13 +174,14 @@ const drawerOpen = ref(false)
 // 路由切换 → 自动关抽屉（用户点了菜单项就该关）
 watch(() => route.fullPath, () => {
   drawerOpen.value = false
+  userMenuOpen.value = false
 })
 
 // Esc 关抽屉
 function onKeydown(e) {
-  if (e.key === 'Escape' && drawerOpen.value) {
-    drawerOpen.value = false
-  }
+  if (e.key !== 'Escape') return
+  drawerOpen.value = false
+  userMenuOpen.value = false
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
@@ -202,22 +226,56 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </button>
       </div>
 
-      <!-- 用户徽标：移动端 < sm 只显示 emoji；sm+ 显示名字；md+ 显示完整 -->
-      <button
-        class="ml-auto flex items-center gap-1.5 px-2 md:px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors flex-shrink-0"
-        :class="auth.isInternal
-          ? 'bg-blue-500 text-white hover:bg-blue-600'
-          : 'bg-teal text-white hover:bg-teal/90'"
-        :title="auth.isInternal ? '點擊登出（僅退出 Vue 系統，Odoo session 保留）' : '點擊登出（清除登入態，下個員工接班）'"
-        @click="handleLogout"
-      >
-        <span v-if="auth.isInternal">🏢</span>
-        <span v-else>🔖</span>
-        <span class="hidden sm:inline truncate max-w-[120px]">{{ auth.identity?.name || 'User' }}</span>
-        <span class="hidden md:inline opacity-60 text-[10px]">·</span>
-        <span class="hidden md:inline opacity-80">{{ auth.isInternal ? 'Odoo' : '倉庫' }}</span>
-        <span class="hidden sm:inline opacity-70 ml-1">登出</span>
-      </button>
+      <!-- 用户徽标 → 個人中心菜单：移动端 < sm 只显示 emoji；sm+ 显示名字；md+ 显示完整 -->
+      <div class="ml-auto relative flex-shrink-0">
+        <button
+          class="flex items-center gap-1.5 px-2 md:px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+          :class="auth.isInternal
+            ? 'bg-blue-500 text-white hover:bg-blue-600'
+            : 'bg-teal text-white hover:bg-teal/90'"
+          aria-haspopup="menu"
+          :aria-expanded="userMenuOpen"
+          @click="userMenuOpen = !userMenuOpen"
+        >
+          <span v-if="auth.isInternal">🏢</span>
+          <span v-else>🔖</span>
+          <span class="hidden sm:inline truncate max-w-[120px]">{{ auth.identity?.name || 'User' }}</span>
+          <span class="hidden md:inline opacity-60 text-[10px]">·</span>
+          <span class="hidden md:inline opacity-80">{{ auth.isInternal ? 'Odoo' : '倉庫' }}</span>
+          <span class="opacity-80 text-xs ml-0.5">▾</span>
+        </button>
+
+        <!-- 点菜单外面关闭 -->
+        <div v-if="userMenuOpen" class="fixed inset-0 z-[70]" @click="userMenuOpen = false"></div>
+        <div
+          v-if="userMenuOpen"
+          class="absolute right-0 mt-2 w-48 bg-white rounded-xl border border-gray-200 shadow-xl z-[71] py-1.5"
+          role="menu"
+        >
+          <div class="px-4 pt-1 pb-2 text-[12px] font-bold text-gray-400 tracking-widest">個人中心</div>
+          <button
+            v-for="item in USER_MENU"
+            :key="item.name"
+            type="button"
+            role="menuitem"
+            class="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2.5 hover:bg-gray-50"
+            :class="route.name === item.name ? 'text-teal font-semibold' : 'text-gray-700'"
+            @click="goUserMenu(item)"
+          >
+            <span>{{ item.icon }}</span>{{ item.label }}
+          </button>
+          <div class="my-1.5 border-t border-gray-100"></div>
+          <button
+            type="button"
+            role="menuitem"
+            class="w-full text-left px-4 py-2.5 text-sm flex items-center gap-2.5 text-red-600 hover:bg-red-50"
+            :title="auth.isInternal ? '僅退出 Vue 系統，Odoo session 保留' : '清除登入態，下個員工接班'"
+            @click="handleLogout"
+          >
+            <span>↩︎</span>登出
+          </button>
+        </div>
+      </div>
     </header>
 
     <!-- ======== 主体 ======== -->
@@ -326,6 +384,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <span>{{ item.label }}</span>
             </button>
           </template>
+        </div>
+
+        <!-- 個人中心 -->
+        <div class="border-t border-gray-100 py-2 flex-shrink-0">
+          <div class="text-[13px] font-bold text-gray-400 px-5 pt-1 pb-2 tracking-widest">個人中心</div>
+          <RouterLink
+            v-for="item in USER_MENU"
+            :key="item.name"
+            :to="{ name: item.name }"
+            class="sb-nav"
+            :class="{ active: route.name === item.name }"
+          >
+            <span class="ni">{{ item.icon }}</span>
+            <span>{{ item.label }}</span>
+          </RouterLink>
+          <button type="button" class="sb-nav w-full text-red-600" @click="handleLogout">
+            <span class="ni">↩︎</span>
+            <span>登出</span>
+          </button>
         </div>
       </nav>
     </Transition>

@@ -30,8 +30,6 @@ const routes = [
       { path: 'orders',     name: 'orders',    component: () => import('@/views/dashboard/Orders.vue'),    meta: { system: 'dashboard' } },
       // 库存对比暂时菜单隐藏；路由保留，未来想恢复直接放开侧边栏 nav 即可
       { path: 'inventory',  name: 'inventory', component: () => import('@/views/dashboard/Inventory.vue'), meta: { system: 'dashboard' } },
-      // 个人信息（只读展示当前登入身份）— 取代了原来的 admin 菜单位置
-      { path: 'profile',    name: 'profile',   component: () => import('@/views/dashboard/Profile.vue'),   meta: { system: 'dashboard' } },
       // 用户管理 Admin 已菜单隐藏（迁移到 Odoo 后台维护），路由保留
       { path: 'admin',      name: 'admin',     component: () => import('@/views/dashboard/Admin.vue'),     meta: { system: 'dashboard', requires: 'type:internal' } },
 
@@ -50,6 +48,10 @@ const routes = [
 
       // ===== 每日盤點 =====
       { path: 'stocktake', name: 'stocktake', component: () => import('@/views/stocktake/Stocktake.vue'), meta: { system: 'stocktake' } },
+
+      // ===== 個人中心（不在顶部 tab；从右上角使用者按钮的菜单进入） =====
+      { path: 'profile', name: 'profile',      component: () => import('@/views/me/Profile.vue'),     meta: { system: 'me' } },
+      { path: 'app',     name: 'app-download', component: () => import('@/views/me/AppDownload.vue'), meta: { system: 'me' } },
 
       // ===== 倉庫作業中心（板/格子 = Odoo 子库位；首页 = 货架结构） =====
       { path: 'shelf',           name: 'shelf-structure', component: () => import('@/views/shelf/ShelfStructure.vue'), meta: { system: 'shelf' } },
