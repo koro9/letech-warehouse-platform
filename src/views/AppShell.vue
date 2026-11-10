@@ -61,6 +61,11 @@ function prefetchViews() {
       import('@/views/shelf/ProductBins.vue'),
       import('@/views/shelf/ShelfLookup.vue'),
       import('@/views/shelf/Unshelved.vue'),
+      // 區域盤點
+      import('@/views/zonecount/Overview.vue'),
+      import('@/views/zonecount/Tasks.vue'),
+      import('@/views/zonecount/Results.vue'),
+      import('@/views/zonecount/Logs.vue'),
     ])
   })
 }
@@ -74,6 +79,7 @@ const systems = [
   { key: 'query',     label: '🔍 智能查詢',       shortLabel: '🔍 查詢', home: { name: 'query-home' } },
   { key: 'stocktake', label: '📋 每日盤點',       shortLabel: '📋 盤點', home: { name: 'stocktake' } },
   { key: 'shelf',     label: '🏭 倉庫作業中心',   shortLabel: '🏭 倉庫', home: { name: 'shelf-structure' } },
+  { key: 'zonecount', label: '🧮 區域盤點',       shortLabel: '🧮 區域', home: { name: 'zone-overview' } },
 ]
 
 // 每个系统的侧边栏项 — 跟 demo 顺序对齐
@@ -117,6 +123,13 @@ const sidebars = {
     { name: 'shelf-location',  label: '貨架查詢',   icon: '🗄️' },
     { name: 'shelf-unshelved', label: '未上架清單', icon: '📥' },
   ],
+  // 區域盤點（年底大盤點）：一張任務單 = 一個員工 + 幾個貨架 + 一個時段
+  zonecount: [
+    { name: 'zone-overview', label: '盤點總覽', icon: '📊' },
+    { name: 'zone-tasks',    label: '任務單',   icon: '🗂️' },
+    { name: 'zone-results',  label: '盤點結果', icon: '📑' },
+    { name: 'zone-logs',     label: '操作記錄', icon: '🕘' },
+  ],
   // 個人中心：不占顶部 tab，从右上角使用者按钮的菜单进入
   me: [
     { name: 'profile',      label: '個人資訊', icon: '👤' },
@@ -136,6 +149,7 @@ const sectionTitle = computed(() => {
   if (currentSystem.value === 'query') return '查詢工具'
   if (currentSystem.value === 'stocktake') return '每日盤點'
   if (currentSystem.value === 'shelf') return '倉庫作業'
+  if (currentSystem.value === 'zonecount') return '區域盤點'
   if (currentSystem.value === 'me') return '個人中心'
   return 'MENU'
 })

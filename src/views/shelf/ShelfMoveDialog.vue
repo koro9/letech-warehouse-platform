@@ -120,6 +120,7 @@ async function submit() {
       location_outside_warehouse: '目標位置不在同一個倉庫',
       shelf_move_type_missing: '此倉庫尚未設定「貨架移動」作業類型，請聯絡主管',
       busy: '其他同事正在移動這個商品，請稍後再試',
+      shelf_locked: `這個貨架正在區域盤點（${data.task || ''} ${data.employee || ''}），寫回前不能上架 / 轉出`,
       move_failed: `移動失敗：${data.message || ''}`,
     }
     error.value = msgs[data.error] || data.error || '移動失敗，請重試'
