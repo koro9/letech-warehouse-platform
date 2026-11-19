@@ -156,22 +156,26 @@ const resolving = ref(false)   // 后端解析中 — 挡住这期间的重复�
 
 /** 本地匹配 — 后端两道表的子集，命中就不用发请求 */
 function matchLocal(code) {
-  const item = items.value.find(
-    (i) => i.sku === code
-        || (i.barcodes || []).includes(code)
-        || i.barcode === code
-        || i.barcode2 === code
-  )
-  if (item) return { item, comp: null }
+  // 收集所有匹配此码的候选：顶层行(comp=null) 在前、BOM 子件在后，保留「先扫满单件再凑套」的优先级。
+  const candidates = []
+  for (const i of items.value) {
+    if (i.sku === code || (i.barcodes || []).includes(code) || i.barcode === code || i.barcode2 === code) {
+      candidates.push({ item: i, comp: null })
+    }
+  }
   // BOM 子件（仓库的货可能还没组装成成品，扫子件凑套）
   for (const it of items.value) {
     for (const c of (it.components || [])) {
       if ((c.barcodes || []).includes(code) || c.barcode === code || c.sku === code) {
-        return { item: it, comp: c }
+        candidates.push({ item: it, comp: c })
       }
     }
   }
-  return null
+  if (!candidates.length) return null
+  // 同一条码可能既是某单件、又是另一组合的子件（如 AMI-101270 单件 + AMI-101270B 套装的组件，
+  // 实物条码同为 8809294856285）。只返回第一个「母件还没扫满」的候选，别让已扫满的单件行
+  // 挡住后面要凑套的子件 —— 否则套装的组件永远扫不到，只能靠「全部出庫」硬出。
+  return candidates.find((cd) => cd.item.scanned < cd.item.required) || candidates[0]
 }
 
 /** 把后端返回的 {sku, matched_sku, is_component} 落到本地行上 */
