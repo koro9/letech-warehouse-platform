@@ -61,6 +61,8 @@ function prefetchViews() {
       import('@/views/shelf/ProductBins.vue'),
       import('@/views/shelf/ShelfLookup.vue'),
       import('@/views/shelf/Unshelved.vue'),
+      import('@/views/shelf/MobilePutaway.vue'),
+      import('@/views/shelf/ShelfManage.vue'),
       // 區域盤點
       import('@/views/zonecount/Overview.vue'),
       import('@/views/zonecount/Tasks.vue'),
@@ -119,9 +121,11 @@ const sidebars = {
   // 倉庫作業中心：首页是货架结构；商品位置在智能查詢下也有同一个入口
   shelf: [
     { name: 'shelf-structure', label: '貨架結構',   icon: '🧱' },
+    { name: 'shelf-manage',    label: '貨架管理',   icon: '🛠️' },
     { name: 'shelf-product',   label: '商品位置',   icon: '📍' },
     { name: 'shelf-location',  label: '貨架查詢',   icon: '🗄️' },
     { name: 'shelf-unshelved', label: '未上架清單', icon: '📥' },
+    { name: 'shelf-putaway',   label: '手機上架',   icon: '📱' },
   ],
   // 區域盤點（年底大盤點）：一張任務單 = 一個員工 + 幾個貨架 + 一個時段
   zonecount: [

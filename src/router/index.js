@@ -58,6 +58,10 @@ const routes = [
       { path: 'shelf/product',   name: 'shelf-product',   component: () => import('@/views/shelf/ProductBins.vue'), meta: { system: 'shelf' } },
       { path: 'shelf/location',  name: 'shelf-location',  component: () => import('@/views/shelf/ShelfLookup.vue'), meta: { system: 'shelf' } },
       { path: 'shelf/unshelved', name: 'shelf-unshelved', component: () => import('@/views/shelf/Unshelved.vue'),   meta: { system: 'shelf' } },
+      // 貨架管理：在 WMS 建 / 改 / 删板、格子（Odoo 子库位），手机可用
+      { path: 'shelf/manage',    name: 'shelf-manage',    component: () => import('@/views/shelf/ShelfManage.vue'), meta: { system: 'shelf' } },
+      // 手機上架：员工用手机浏览器 + 相机扫码，逐件把未上架的货登记到货架（Bin Location 建档）
+      { path: 'shelf/putaway',   name: 'shelf-putaway',   component: () => import('@/views/shelf/MobilePutaway.vue'), meta: { system: 'shelf' } },
 
       // ===== 區域盤點（年底大盤點：按貨架分任務單，PDA 盤、電腦版分配 / 覆核寫回） =====
       { path: 'zonecount',         name: 'zone-overview', component: () => import('@/views/zonecount/Overview.vue'), meta: { system: 'zonecount' } },

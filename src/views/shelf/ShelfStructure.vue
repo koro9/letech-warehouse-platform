@@ -11,7 +11,7 @@
  * 每个位置显示 下層位置数 / SKU 数 / 在庫 / 已預留；空位置标「空」。
  * 点位置名 → 貨架查詢看上面的商品明细。
  *
- * 只读。板 / 格子的新增、修改在 Odoo 后台（库存 → 配置 → 地点）。
+ * 只读。板 / 格子的新增、修改在「貨架管理」页（ShelfManage.vue）。
  */
 import { computed, onActivated, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -89,7 +89,7 @@ function openLocation(id) {
       <ShelfStatCards :stats="stats" />
 
       <div v-if="!result.tree.children.length" class="bg-white rounded-xl border border-gray-200 p-6 text-sm text-gray-500 leading-relaxed">
-        {{ result.warehouse.code }} 還沒有建立任何板或格子。請在 Odoo「庫存 → 配置 → 地點」於 {{ result.tree.full_name }} 下新增。
+        {{ result.warehouse.code }} 還沒有建立任何板或格子。請到「<router-link :to="{ name: 'shelf-manage' }" class="text-[#2F6B5F] underline">貨架管理</router-link>」新增。
       </div>
       <template v-else>
         <ShelfGroupedTable
@@ -101,7 +101,7 @@ function openLocation(id) {
           @row-action="row => openLocation(row.locationId)"
         />
         <p class="text-xs lg:text-sm text-gray-400 mt-3 leading-relaxed">
-          按「查看貨架」查看該位置上的商品；點分組可收合。板／格子的新增、修改請在 Odoo「庫存 → 配置 → 地點」。
+          按「查看貨架」查看該位置上的商品；點分組可收合。板／格子的新增、修改請到「<router-link :to="{ name: 'shelf-manage' }" class="text-[#2F6B5F] underline">貨架管理</router-link>」。
         </p>
       </template>
     </template>

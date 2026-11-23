@@ -115,8 +115,45 @@ export function getTargetLocations(q, warehouse) {
  *
  * idempotencyKey：同一次确认重试时传同一个 key，后端只执行一次（防连按 / 网络重发）
  */
-export function moveStock({ sku, sourceLocationId, destLocationId, qty }, idempotencyKey) {
-  return http.post('/warehouse/shelf/move',
-    { sku, source_location_id: sourceLocationId, dest_location_id: destLocationId, qty },
+export function moveStock({ sku, sourceLocationId, destLocationId, qty, lotId, newExpiry }, idempotencyKey) {
+  const body = { sku, source_location_id: sourceLocationId, dest_location_id: destLocationId, qty }
+  // 可选：lot_id 只搬这一批（0 = 没批次的部分）；new_expiry 搬完在目标改登成这个到期日
+  if (lotId !== undefined && lotId !== null) body.lot_id = lotId
+  if (newExpiry) body.new_expiry = newExpiry
+  return http.post('/warehouse/shelf/move', body,
     idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined)
+}
+
+/**
+ * 货架管理：新建板 / 格子（可批量，全部成功或全部不建）
+ *   POST /api/warehouse/shelf/location/create
+ *   body { parent_id, items: [{ name, barcode }] }
+ *   200 → { created: [{ id, name, full_name, barcode }] }
+ *   400 invalid_name / invalid_barcode / duplicate_in_request / too_many_items …
+ *   409 name_taken（同层已有同名）/ barcode_taken（带 location）
+ */
+export function createLocations(parentId, items, idempotencyKey) {
+  return http.post('/warehouse/shelf/location/create', { parent_id: parentId, items },
+    idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined)
+}
+
+/**
+ * 改板 / 格子的名称、条码（不动库存）
+ *   POST /api/warehouse/shelf/location/:id/update   body { name?, barcode? }
+ *   200 → { location }
+ */
+export function updateLocation(id, { name, barcode }) {
+  const body = {}
+  if (name !== undefined) body.name = name
+  if (barcode !== undefined) body.barcode = barcode
+  return http.post(`/warehouse/shelf/location/${id}/update`, body)
+}
+
+/**
+ * 删除板 / 格子（Odoo 封存）；只有空位置能删
+ *   POST /api/warehouse/shelf/location/:id/archive
+ *   400 has_stock / has_children / has_open_moves / root_location；409 shelf_locked
+ */
+export function archiveLocation(id) {
+  return http.post(`/warehouse/shelf/location/${id}/archive`)
 }
