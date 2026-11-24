@@ -218,6 +218,8 @@ const extraCols = reactive([
 // 刷新后保留用户调过的宽度。表格用 table-layout: fixed，每个固定 th 绑 :style width。
 const COL_WIDTHS_KEY = 'alloc_col_widths'
 const COL_MIN_W = 40
+// 數字欄最寬上限（業務 11-24 Janet：欄位間距要合理 —— 以前拖得太寬的數字欄，載入時收回上限）
+const COL_MAX_W = { qty: 120, counted: 120, box: 120, totalBox: 120, ws: 140, tpl: 160, sd4: 140 }
 // 默认宽度 — Name 给宽一点让长商品名显示全；数字列窄，文本列中等
 const DEFAULT_COL_WIDTHS = {
   qty: 60,       // 總數
@@ -237,7 +239,12 @@ const DEFAULT_COL_WIDTHS = {
 // 非固定列（table-fixed 也需要 width，但不强制 resize handle）
 const EXTRA_COL_W = 90    // 动态额外列
 // 分貨參考欄（展開時 3PL / SD4 分配欄也用固定寬度，不沿用使用者以前拖過的列寬 —— 業務 11-24 Janet：欄位隔太遠）
-const REF_W = { sales: 78, incl: 70, exp: 84, rate: 72, dem: 70, alloc: 72 }
+const REF_W = { sales: 66, incl: 58, exp: 76, rate: 62, dem: 58, alloc: 64 }
+// 展開時文字欄收窄，讓原有欄位 + 參考欄在 1920 寬螢幕一屏放得下（收起時照用使用者自己的列寬）
+const REF_CAP = { remarks: 110, board: 60, barcode: 105, name: 200, dates: 90 }
+function cw(key) {
+  return refOpen.value ? Math.min(colWidths[key], REF_CAP[key] || 9999) : colWidths[key]
+}
 const ADDCOL_W = 44       // 加列 + 按钮列
 const ACTION_W = 56       // 操作列
 
@@ -248,7 +255,7 @@ function _loadColWidths() {
     if (raw) {
       const saved = JSON.parse(raw)
       for (const k in merged) {
-        if (typeof saved[k] === 'number' && saved[k] >= COL_MIN_W) merged[k] = saved[k]
+        if (typeof saved[k] === 'number' && saved[k] >= COL_MIN_W) merged[k] = Math.min(saved[k], COL_MAX_W[k] || 9999)
       }
     }
   } catch (e) { /* localStorage 不可用或 JSON 坏了 — 用默认值 */ }
@@ -271,7 +278,7 @@ let _resizeStartW = 0
 function _onColResizeMove(e) {
   if (!_resizeKey) return
   const delta = e.clientX - _resizeStartX
-  colWidths[_resizeKey] = Math.max(COL_MIN_W, _resizeStartW + delta)
+  colWidths[_resizeKey] = Math.min(Math.max(COL_MIN_W, _resizeStartW + delta), COL_MAX_W[_resizeKey] || 9999)
 }
 
 function _onColResizeUp() {
@@ -1292,15 +1299,15 @@ onActivated(_autoLoadFromQuery)
             <thead class="sticky top-0 z-10">
               <tr class="border-b-2 border-gray-200" style="background:#f9fafb;">
                 <th class="px-2.5 py-2 text-center text-[11px] font-semibold text-gray-500 relative" :style="{ width: colWidths.qty + 'px' }">總數<span class="col-resize-handle" @mousedown="startColResize('qty', $event)"></span></th>
-                <th v-if="!refOpen" class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.counted + 'px' }" style="color:#0d9488;background:#f0fdfa;">現點<span class="col-resize-handle" @mousedown="startColResize('counted', $event)"></span></th>
-                <th v-if="!refOpen" class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.box + 'px' }">箱入<span class="col-resize-handle" @mousedown="startColResize('box', $event)"></span></th>
-                <th v-if="!refOpen" class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.totalBox + 'px' }">總箱數<span class="col-resize-handle" @mousedown="startColResize('totalBox', $event)"></span></th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.remarks + 'px' }">Remarks<span class="col-resize-handle" @mousedown="startColResize('remarks', $event)"></span></th>
-                <th v-if="!refOpen" class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.board + 'px' }">板<span class="col-resize-handle" @mousedown="startColResize('board', $event)"></span></th>
-                <th v-if="!refOpen" class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.barcode + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.counted + 'px' }" style="color:#0d9488;background:#f0fdfa;">現點<span class="col-resize-handle" @mousedown="startColResize('counted', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.box + 'px' }">箱入<span class="col-resize-handle" @mousedown="startColResize('box', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.totalBox + 'px' }">總箱數<span class="col-resize-handle" @mousedown="startColResize('totalBox', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: cw('remarks') + 'px' }">Remarks<span class="col-resize-handle" @mousedown="startColResize('remarks', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: cw('board') + 'px' }">板<span class="col-resize-handle" @mousedown="startColResize('board', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: cw('barcode') + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.sku + 'px' }">SKU<span class="col-resize-handle" @mousedown="startColResize('sku', $event)"></span></th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.name + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
-                <th v-if="!refOpen" class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.dates + 'px' }">有效期<span class="col-resize-handle" @mousedown="startColResize('dates', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: cw('name') + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
+                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: cw('dates') + 'px' }">{{ refOpen ? '本批有效期' : '有效期' }}<span class="col-resize-handle" @mousedown="startColResize('dates', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.ws + 'px' }" style="color:#065f46;background:#ecfdf5;">WS<span class="col-resize-handle" @mousedown="startColResize('ws', $event)"></span></th>
                 <template v-if="refOpen">
                   <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.sales + 'px' }" style="color:#1d4ed8;background:#eff6ff;" title="3PL 近4個完整週實際單件 sales（按BOM折算）">3PL<br>單件sales</th>
@@ -1348,13 +1355,13 @@ onActivated(_autoLoadFromQuery)
                 <tr class="border-b border-gray-100"
                     :class="isMismatch(row) ? 'bg-yellow-50' : dirtyLineIds.has(row.po_line_id) ? 'bg-amber-50/40' : ''">
                   <td class="px-2.5 py-2 text-center font-semibold">{{ row.qty }}</td>
-                  <td v-if="!refOpen" class="px-2.5 py-2 text-center" style="background:rgba(240,253,250,.4);">
+                  <td class="px-2.5 py-2 text-center" style="background:rgba(240,253,250,.4);">
                     <span v-if="row.counted == null" class="text-gray-300 text-xs">—</span>
                     <span v-else class="text-xs font-bold" :class="row.counted === row.qty ? 'text-gray-800' : 'text-red-600'">
                       {{ row.counted }}
                     </span>
                   </td>
-                  <td v-if="!refOpen" class="px-2.5 py-2 text-center">
+                  <td class="px-2.5 py-2 text-center">
                     <input
                       :value="row.box_qty || ''"
                       @input="(e) => { row.box_qty = parseInt(e.target.value) || 0; markDirty(row); }"
@@ -1368,7 +1375,7 @@ onActivated(_autoLoadFromQuery)
                   <!-- 总箱数：前端只读显示 — 后端 store=True compute 字段（=ceil(qty/box_qty)）
                        但 box_qty 改了之后后端字段还没刷新（要 save 后才刷），所以前端在
                        display 时 fallback 用前端 ceil 即时计算，让员工录入瞬间就看到 -->
-                  <td v-if="!refOpen" class="px-2.5 py-2 text-center text-xs font-semibold" :class="liveTotalBoxes(row) === '—' ? 'text-gray-300' : 'text-gray-700'">{{ liveTotalBoxes(row) }}</td>
+                  <td class="px-2.5 py-2 text-center text-xs font-semibold" :class="liveTotalBoxes(row) === '—' ? 'text-gray-300' : 'text-gray-700'">{{ liveTotalBoxes(row) }}</td>
                   <td class="px-2.5 py-2">
                     <!-- Remarks 可编辑 — 分配人员手填，M3a 点货员只读看到 -->
                     <input
@@ -1381,16 +1388,16 @@ onActivated(_autoLoadFromQuery)
                       style="border-color:#e5e7eb;"
                     />
                   </td>
-                  <td v-if="!refOpen" class="px-2.5 py-2 text-xs" style="color:#92400e;">
+                  <td class="px-2.5 py-2 text-xs" style="color:#92400e;">
                     <!-- 板 只读 — 由 M3a 点货人填写,分货人只看(提醒货在哪) -->
                     <span v-if="row.board" class="font-semibold">{{ row.board }}</span>
                     <span v-else class="text-gray-300">—</span>
                   </td>
-                  <td v-if="!refOpen" class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
+                  <td class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
                   <td class="px-2.5 py-2 font-mono text-[11px] font-bold">{{ row.sku }}</td>
                   <td class="px-2.5 py-2 text-xs truncate" :title="row.name">{{ row.name }}</td>
                   <!-- 有效期 — 點貨錄入，分配只讀 -->
-                  <td v-if="!refOpen" class="px-2.5 py-2 text-[11px]" :class="(row.dates && row.dates.length) ? 'text-gray-600' : 'text-gray-300'" :title="fmtDates(row.dates)">
+                  <td class="px-2.5 py-2 text-[11px]" :class="(row.dates && row.dates.length) ? 'text-gray-600' : 'text-gray-300'" :title="fmtDates(row.dates)">
                     <span v-if="row.dates && row.dates.length">{{ fmtDates(row.dates) }}</span>
                     <span v-else>—</span>
                   </td>
@@ -1508,22 +1515,18 @@ onActivated(_autoLoadFromQuery)
                      之后 SKU 列才与主行 SKU 对齐；少一个会整行左移（SKU 落到 Barcode 列） -->
                 <tr v-for="(c, ci) in row.combos" :key="c.sku" class="border-b border-gray-50" style="background:linear-gradient(90deg,#eff6ff,transparent);">
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <template v-if="!refOpen">
-                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  </template>
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <template v-if="!refOpen">
-                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  </template>
+                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
                   <td class="px-2.5 py-1.5">
                     <span class="text-[11px] text-blue-500">↳</span>
                     <span class="font-mono text-[11px] font-bold ml-1" style="color:#2563eb;">{{ c.sku }}</span>
                   </td>
                   <td class="px-2.5 py-1.5 text-[11px] text-gray-500">{{ c.name }} {{ c.label }}</td>
-                  <td v-if="!refOpen" class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
+                  <td class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
                   <!-- WS 位:combo 只走 3PL,WS 恒空 -->
                   <td class="px-1.5 py-1.5 text-gray-300 text-center">—</td>
                   <template v-if="refOpen"><td></td><td></td><td></td></template>
@@ -1566,15 +1569,15 @@ onActivated(_autoLoadFromQuery)
             <tfoot class="sticky bottom-0 z-10">
               <tr class="font-semibold text-xs" style="background:#f3f4f6;border-top:2px solid #d1d5db;">
                 <td class="px-2.5 py-2 text-center">{{ footerStats.tQ }}</td>
-                <td v-if="!refOpen" class="px-2.5 py-2 text-center" style="background:#f0fdfa;">
+                <td class="px-2.5 py-2 text-center" style="background:#f0fdfa;">
                   <span class="font-bold" :class="footerStats.tCo === footerStats.tQ ? 'text-gray-800' : 'text-red-600'">{{ footerStats.tCo }}</span>
                 </td>
-                <template v-if="!refOpen"><td></td><td></td></template><!-- 箱入/總箱數 -->
+                <td></td><td></td><!-- 箱入/總箱數 -->
                 <td></td><!-- Remarks -->
-                <template v-if="!refOpen"><td></td><td></td></template><!-- 板/Barcode -->
+                <td></td><td></td><!-- 板/Barcode -->
                 <td class="px-2.5 py-2">{{ refOpen ? '本頁合計' : '合計' }}</td><!-- SKU -->
                 <td></td><!-- Name -->
-                <td v-if="!refOpen"></td><!-- 有效期 -->
+                <td></td><!-- 有效期 -->
                 <td class="px-2.5 py-2 text-center" style="color:#065f46;background:#ecfdf5;">{{ footerStats.tW }}</td>
                 <template v-if="refOpen"><td style="background:#eff6ff;"></td><td style="background:#eff6ff;"></td><td style="background:#eff6ff;"></td></template>
                 <td class="px-2.5 py-2 text-center" style="color:#1d4ed8;background:#eff6ff;">{{ footerStats.tT }}</td>
