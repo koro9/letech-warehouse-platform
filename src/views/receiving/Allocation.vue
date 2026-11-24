@@ -60,6 +60,147 @@ const anyFilterActive = computed(() =>
 const loading = ref(false)
 const saving = ref(false)
 
+// ============================================================
+// 分貨參考（業務 2026-11-24 Janet《日韓收貨分配 v5》）
+//   · 預設原畫面；按「分貨參考：展開」才顯示新增參考欄，再按「收起」切回（分完也一樣）
+//   · 切換只顯示/隱藏參考欄，不改 PO 狀態、分配數量、Remarks
+//   · 「剔除無3PL售賣SKU」是獨立開關，預設不勾、展開時不自動勾；勾上才隱藏所有來源都不走 3PL 的行
+//   · 參考數據只在展開或勾剔除時才向後端拉（不影響原畫面速度）
+// ============================================================
+const refOpen = ref(false)
+const excludeNo3pl = ref(false)
+const refData = ref(null)
+const refLoading = ref(false)
+
+async function loadRef() {
+  if (!currentPO.value || refLoading.value) return
+  refLoading.value = true
+  try {
+    refData.value = await poApi.getAllocationReference(currentPO.value)
+  } catch (err) {
+    if (!err.handledByInterceptor) {
+      showToast(err.response?.data?.error || '分貨參考載入失敗', 'error')
+    }
+  } finally {
+    refLoading.value = false
+  }
+}
+
+function toggleRef() {
+  refOpen.value = !refOpen.value
+  if (refOpen.value && !refData.value) loadRef()
+}
+
+watch(excludeNo3pl, (v) => { if (v && !refData.value) loadRef() })
+
+function resetRef() {
+  refOpen.value = false
+  excludeNo3pl.value = false
+  refData.value = null
+  hideTip()
+}
+
+function refOf(row) {
+  return refData.value?.rows?.[String(row.product_id)] || null
+}
+
+// 本次分配（同 SKU 多行先合計；3PL 含組合裝件數，SD4 = 各行算出的 SD4）
+const allocByProduct = computed(() => {
+  const out = {}
+  for (const r of rows) {
+    const k = String(r.product_id)
+    const d = out[k] || (out[k] = { tpl: 0, sd4: 0 })
+    d.tpl += (parseInt(r.tpl) || 0)
+      + (r.combos || []).reduce((s, c) => s + (parseInt(c.tpl) || 0) * (c.multiplier || 1), 0)
+    d.sd4 += calcSD4(r)
+  }
+  return out
+})
+
+// 預計庫存 = 含待入 + （本次分配 − 本 PO 已完成 TR 送到該倉的）
+function projected(row, side) {
+  const ref_ = refOf(row)
+  if (!ref_) return null
+  const st = ref_[side].stock
+  const alloc = allocByProduct.value[String(row.product_id)]?.[side] || 0
+  return (st.total || 0) + Math.max(alloc - (st.self_done || 0), 0)
+}
+
+// 餘缺率 → { text, cls, title }
+function rateInfo(row, side) {
+  const ref_ = refOf(row)
+  if (!ref_) return { text: '', cls: 'text-gray-300' }
+  const d = ref_[side]
+  if (d.mode === 'none') return { text: '-', cls: 'text-gray-300' }
+  if (d.mode === 'review' || d.demand == null) return { text: '需覆核', cls: 'text-orange-600 font-semibold' }
+  const proj = projected(row, side)
+  if (!d.demand) return { text: '-／無銷量', cls: 'text-gray-400', title: `預計庫存 ${fmtN(proj)}，需求 0` }
+  const rate = (proj - d.demand) / d.demand * 100
+  const gap = proj - d.demand
+  return {
+    text: `${rate > 0 ? '+' : ''}${rate.toFixed(rate % 1 === 0 ? 0 : 1)}%`,
+    cls: rate < 0 ? 'text-red-600 font-bold' : 'text-emerald-700 font-semibold',
+    title: `（預計庫存 ${fmtN(proj)} − 需求 ${fmtN(d.demand)}）÷ ${fmtN(d.demand)}；${gap < 0 ? `仍差 ${fmtN(-gap)} 件` : `多 ${fmtN(gap)} 件`}`,
+  }
+}
+
+function fmtN(v) {
+  if (v == null) return '-'
+  const n = Math.round(v * 10) / 10
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
+
+function fmtDay(s) { return s ? s.replaceAll('-', '/') : '-' }
+
+function stockTitle(row, side) {
+  const st = refOf(row)?.[side]?.stock
+  if (!st) return ''
+  const lines = [
+    `含待入 ${fmtN(st.total)} ＝ 當前可用 ${fmtN(st.avail)} ＋ 已分倉PO未完成 ${fmtN(st.po)} ＋ 調入未完成 ${fmtN(st.tr)}`,
+    ...(st.docs || []).map(d => `　· ${d.doc}：${fmtN(d.qty)}`),
+  ]
+  if (st.self_done) lines.push(`本PO已完成調貨 ${fmtN(st.self_done)} 件已在可用庫存內，本次分配會先扣掉`)
+  lines.push('餘缺率用的預計庫存 ＝ 含待入 ＋ 本次分配（同SKU多行合計）')
+  return lines.join('\n')
+}
+
+function sd4DemandTitle(row) {
+  const d = refOf(row)?.sd4
+  if (!d) return ''
+  const per = refData.value?.periods
+  const ms = (d.months || []).map(m => `${m.label}：實際 ${fmtN(m.sales)}，校正 ${m.demand == null ? '—' : fmtN(m.demand)}`)
+  return ['SD4 需求＝近三個月（本月按已過天數推算）各月扣缺貨後的最高需求', ...ms,
+    per?.yesterday ? `銷量截至 ${fmtDay(per.yesterday)}` : ''].filter(Boolean).join('\n')
+}
+
+function tplSalesTitle(row) {
+  const d = refOf(row)?.tpl
+  const per = refData.value?.periods
+  if (!d || d.mode === 'none') return ''
+  const head = `3PL 近4個完整週（${fmtDay(per?.w4_start)}～${fmtDay(per?.cutoff)}）實際單件 sales：${fmtN(d.sales)}`
+  const dem = d.mode === 'review' ? '校正需求：需覆核（有貨日不足，歷史也不足28個有貨日）'
+    : `校正需求：${fmtN(d.demand)}${d.mode === 'hist' ? '（採歷史有貨日估算）' : ''}`
+  return `${head}\n${dem}`
+}
+
+// ---- 浮窗（銷量明細 / 到期日批次）— Teleport 到 body，避開表格 overflow ----
+const tip = reactive({ kind: '', row: null, top: 0, left: 0, width: 0 })
+let tipTimer = null
+function showTip(kind, row, e) {
+  clearTimeout(tipTimer)
+  const rect = e.currentTarget.getBoundingClientRect()
+  const w = kind === 'detail' ? Math.min(640, window.innerWidth - 24) : 320
+  let left = rect.left
+  if (left + w > window.innerWidth - 12) left = Math.max(12, window.innerWidth - 12 - w)
+  let top = rect.bottom + 6
+  const estH = kind === 'detail' ? 90 + 34 * ((refOf(row)?.tpl?.sources || []).length) : 60 + 24 * ((refOf(row)?.tpl?.lots || []).length)
+  if (top + estH > window.innerHeight - 12) top = Math.max(12, rect.top - 6 - estH)
+  Object.assign(tip, { kind, row, top, left, width: w })
+}
+function hideTipSoon() { clearTimeout(tipTimer); tipTimer = setTimeout(hideTip, 180) }
+function keepTip() { clearTimeout(tipTimer) }
+function hideTip() { clearTimeout(tipTimer); tip.kind = ''; tip.row = null }
+
 // rows 改成空数组，由 API 填充。每行结构跟后端 _serialize_po_line 对齐：
 //   { po_line_id, sku, barcode, name, qty, box_qty, remarks, counted,
 //     tpl, ws, extra, combos, combo_options,
@@ -95,6 +236,7 @@ const DEFAULT_COL_WIDTHS = {
 }
 // 非固定列（table-fixed 也需要 width，但不强制 resize handle）
 const EXTRA_COL_W = 90    // 动态额外列
+const REF_W = { sales: 78, incl: 70, exp: 84, rate: 72, dem: 70 }   // 分貨參考欄
 const ADDCOL_W = 44       // 加列 + 按钮列
 const ACTION_W = 56       // 操作列
 
@@ -240,6 +382,8 @@ const filteredRows = computed(() => {
       if (filterCount.value === 'matched' && m !== false) return false
       if (filterCount.value === 'over' && m !== 'over') return false
     }
+    // 剔除無3PL售賣SKU：只隱藏所有來源（各店單品 + 所有 bundle）都不走 3PL 的；不看銷量
+    if (excludeNo3pl.value && refData.value && !refOf(r)?.has_tpl) return false
     if (filterExpiry.value === 'no_date' && !hasNoDate(r)) return false
     if (filterExpiry.value === 'has_date' && hasNoDate(r)) return false
     // 各仓位是否已填(>0)
@@ -374,6 +518,9 @@ async function enterPO() {
   loading.value = true
   try {
     const res = await poApi.getAllocation(v)
+    // 换了 PO → 分貨參考回到預設（收起、不剔除）；同一張 PO 刷新 → 保留當前模式、重拉參考
+    const samePO = res.po_name === currentPO.value && entered.value
+    if (!samePO) resetRef()
     // 填充
     currentPO.value = res.po_name
     partnerName.value = res.partner_name || ''
@@ -398,6 +545,7 @@ async function enterPO() {
     extraCols[1] = ec[1] || { name: '', active: false }
     dirtyLineIds.clear()
     entered.value = true
+    if (samePO && refData.value) loadRef()
   } catch (err) {
     if (err.handledByInterceptor) return
     const status = err.response?.status
@@ -424,6 +572,7 @@ function backToEntry() {
   entered.value = false
   rows.splice(0, rows.length)
   dirtyLineIds.clear()
+  resetRef()
 }
 
 // 顶部 🔄 刷新 — 重新拉数据，但保留用户当前的 dirty 输入会有冲突，
@@ -1080,6 +1229,18 @@ onActivated(_autoLoadFromQuery)
 
     <!-- 筛选条：點貨狀態 + 有效期 -->
     <div class="mx-3 sm:mx-4 mt-2 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[11px] flex-shrink-0">
+      <!-- 分貨參考（v5）：預設收起；剔除是獨立開關 -->
+      <div class="flex items-center gap-2">
+        <button class="px-2.5 py-1 rounded-md border text-[11px] font-semibold cursor-pointer"
+                :class="refOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-300 hover:bg-blue-50'"
+                @click="toggleRef">分貨參考：{{ refOpen ? '收起' : '展開' }}</button>
+        <label class="flex items-center gap-1 cursor-pointer select-none text-gray-600">
+          <input v-model="excludeNo3pl" type="checkbox" class="accent-blue-600 cursor-pointer" />
+          剔除無3PL售賣SKU
+        </label>
+        <span v-if="refLoading" class="text-blue-500">載入參考中…</span>
+        <span v-else-if="excludeNo3pl && refData" class="text-gray-500">原PO {{ rows.length }}行｜顯示 {{ filteredRows.length }}行</span>
+      </div>
       <div class="flex items-center gap-1.5">
         <span class="text-gray-400 font-semibold">點貨</span>
         <button :class="chipCls(filterCount==='all')" @click="filterCount='all'">全部 {{ filterCounts.total }}</button>
@@ -1130,18 +1291,29 @@ onActivated(_autoLoadFromQuery)
             <thead class="sticky top-0 z-10">
               <tr class="border-b-2 border-gray-200" style="background:#f9fafb;">
                 <th class="px-2.5 py-2 text-center text-[11px] font-semibold text-gray-500 relative" :style="{ width: colWidths.qty + 'px' }">總數<span class="col-resize-handle" @mousedown="startColResize('qty', $event)"></span></th>
-                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.counted + 'px' }" style="color:#0d9488;background:#f0fdfa;">現點<span class="col-resize-handle" @mousedown="startColResize('counted', $event)"></span></th>
-                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.box + 'px' }">箱入<span class="col-resize-handle" @mousedown="startColResize('box', $event)"></span></th>
-                <th class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.totalBox + 'px' }">總箱數<span class="col-resize-handle" @mousedown="startColResize('totalBox', $event)"></span></th>
+                <th v-if="!refOpen" class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.counted + 'px' }" style="color:#0d9488;background:#f0fdfa;">現點<span class="col-resize-handle" @mousedown="startColResize('counted', $event)"></span></th>
+                <th v-if="!refOpen" class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.box + 'px' }">箱入<span class="col-resize-handle" @mousedown="startColResize('box', $event)"></span></th>
+                <th v-if="!refOpen" class="px-2.5 py-2 text-center text-[11px] text-gray-500 relative" :style="{ width: colWidths.totalBox + 'px' }">總箱數<span class="col-resize-handle" @mousedown="startColResize('totalBox', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.remarks + 'px' }">Remarks<span class="col-resize-handle" @mousedown="startColResize('remarks', $event)"></span></th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.board + 'px' }">板<span class="col-resize-handle" @mousedown="startColResize('board', $event)"></span></th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.barcode + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
+                <th v-if="!refOpen" class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.board + 'px' }">板<span class="col-resize-handle" @mousedown="startColResize('board', $event)"></span></th>
+                <th v-if="!refOpen" class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.barcode + 'px' }">Barcode<span class="col-resize-handle" @mousedown="startColResize('barcode', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.sku + 'px' }">SKU<span class="col-resize-handle" @mousedown="startColResize('sku', $event)"></span></th>
                 <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.name + 'px' }">Name<span class="col-resize-handle" @mousedown="startColResize('name', $event)"></span></th>
-                <th class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.dates + 'px' }">有效期<span class="col-resize-handle" @mousedown="startColResize('dates', $event)"></span></th>
+                <th v-if="!refOpen" class="px-2.5 py-2 text-[11px] text-gray-500 relative" :style="{ width: colWidths.dates + 'px' }">有效期<span class="col-resize-handle" @mousedown="startColResize('dates', $event)"></span></th>
                 <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.ws + 'px' }" style="color:#065f46;background:#ecfdf5;">WS<span class="col-resize-handle" @mousedown="startColResize('ws', $event)"></span></th>
-                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
-                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.sd4 + 'px' }" style="color:#5b21b6;background:#f5f3ff;">SD4<span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></th>
+                <template v-if="refOpen">
+                  <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.sales + 'px' }" style="color:#1d4ed8;background:#eff6ff;" title="3PL 近4個完整週實際單件 sales（按BOM折算）">3PL<br>單件sales</th>
+                  <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.incl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<br>含待入</th>
+                  <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.exp + 'px' }" style="color:#1d4ed8;background:#eff6ff;" title="3PL 現有庫存最早到期日（不含本批貨／待入貨）">3PL<br>到期日</th>
+                </template>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;"><template v-if="refOpen">3PL<br>分配</template><template v-else>3PL</template><span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
+                <template v-if="refOpen">
+                  <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.rate + 'px' }" style="color:#1d4ed8;background:#eff6ff;" title="（預計庫存 − 校正需求）÷ 校正需求">3PL<br>餘缺率</th>
+                  <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.dem + 'px' }" style="color:#5b21b6;background:#f5f3ff;" title="近三個月各月扣缺貨後的最高需求">SD4<br>需求</th>
+                  <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.incl + 'px' }" style="color:#5b21b6;background:#f5f3ff;">SD4<br>含待入</th>
+                </template>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.sd4 + 'px' }" style="color:#5b21b6;background:#f5f3ff;"><template v-if="refOpen">SD4<br>分配</template><template v-else>SD4</template><span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></th>
+                <th v-if="refOpen" class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.rate + 'px' }" style="color:#5b21b6;background:#f5f3ff;" title="（預計庫存 − 需求）÷ 需求">SD4<br>餘缺率</th>
                 <th v-for="c in activeExtraCols" :key="c.index" class="px-1.5 py-2 text-center relative" :style="{ width: EXTRA_COL_W + 'px' }" style="background:#fffbeb;">
                   <input
                     v-model="extraCols[c.index].name"
@@ -1175,13 +1347,13 @@ onActivated(_autoLoadFromQuery)
                 <tr class="border-b border-gray-100"
                     :class="isMismatch(row) ? 'bg-yellow-50' : dirtyLineIds.has(row.po_line_id) ? 'bg-amber-50/40' : ''">
                   <td class="px-2.5 py-2 text-center font-semibold">{{ row.qty }}</td>
-                  <td class="px-2.5 py-2 text-center" style="background:rgba(240,253,250,.4);">
+                  <td v-if="!refOpen" class="px-2.5 py-2 text-center" style="background:rgba(240,253,250,.4);">
                     <span v-if="row.counted == null" class="text-gray-300 text-xs">—</span>
                     <span v-else class="text-xs font-bold" :class="row.counted === row.qty ? 'text-gray-800' : 'text-red-600'">
                       {{ row.counted }}
                     </span>
                   </td>
-                  <td class="px-2.5 py-2 text-center">
+                  <td v-if="!refOpen" class="px-2.5 py-2 text-center">
                     <input
                       :value="row.box_qty || ''"
                       @input="(e) => { row.box_qty = parseInt(e.target.value) || 0; markDirty(row); }"
@@ -1195,7 +1367,7 @@ onActivated(_autoLoadFromQuery)
                   <!-- 总箱数：前端只读显示 — 后端 store=True compute 字段（=ceil(qty/box_qty)）
                        但 box_qty 改了之后后端字段还没刷新（要 save 后才刷），所以前端在
                        display 时 fallback 用前端 ceil 即时计算，让员工录入瞬间就看到 -->
-                  <td class="px-2.5 py-2 text-center text-xs font-semibold" :class="liveTotalBoxes(row) === '—' ? 'text-gray-300' : 'text-gray-700'">{{ liveTotalBoxes(row) }}</td>
+                  <td v-if="!refOpen" class="px-2.5 py-2 text-center text-xs font-semibold" :class="liveTotalBoxes(row) === '—' ? 'text-gray-300' : 'text-gray-700'">{{ liveTotalBoxes(row) }}</td>
                   <td class="px-2.5 py-2">
                     <!-- Remarks 可编辑 — 分配人员手填，M3a 点货员只读看到 -->
                     <input
@@ -1208,16 +1380,16 @@ onActivated(_autoLoadFromQuery)
                       style="border-color:#e5e7eb;"
                     />
                   </td>
-                  <td class="px-2.5 py-2 text-xs" style="color:#92400e;">
+                  <td v-if="!refOpen" class="px-2.5 py-2 text-xs" style="color:#92400e;">
                     <!-- 板 只读 — 由 M3a 点货人填写,分货人只看(提醒货在哪) -->
                     <span v-if="row.board" class="font-semibold">{{ row.board }}</span>
                     <span v-else class="text-gray-300">—</span>
                   </td>
-                  <td class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
+                  <td v-if="!refOpen" class="px-2.5 py-2 font-mono text-[11px] text-gray-500">{{ row.barcode }}</td>
                   <td class="px-2.5 py-2 font-mono text-[11px] font-bold">{{ row.sku }}</td>
                   <td class="px-2.5 py-2 text-xs truncate" :title="row.name">{{ row.name }}</td>
                   <!-- 有效期 — 點貨錄入，分配只讀 -->
-                  <td class="px-2.5 py-2 text-[11px]" :class="(row.dates && row.dates.length) ? 'text-gray-600' : 'text-gray-300'" :title="fmtDates(row.dates)">
+                  <td v-if="!refOpen" class="px-2.5 py-2 text-[11px]" :class="(row.dates && row.dates.length) ? 'text-gray-600' : 'text-gray-300'" :title="fmtDates(row.dates)">
                     <span v-if="row.dates && row.dates.length">{{ fmtDates(row.dates) }}</span>
                     <span v-else>—</span>
                   </td>
@@ -1235,6 +1407,36 @@ onActivated(_autoLoadFromQuery)
                     />
                   </td>
 
+                  <!-- 分貨參考：3PL 單件sales / 含待入 / 到期日 -->
+                  <template v-if="refOpen">
+                    <td class="px-1.5 py-2 text-center text-xs" style="background:rgba(239,246,255,.4);">
+                      <span v-if="!refOf(row)" class="text-gray-300">{{ refLoading ? '…' : '' }}</span>
+                      <span v-else-if="refOf(row).tpl.mode === 'none'" class="text-gray-300">-</span>
+                      <template v-else>
+                        <span v-if="refOf(row).has_bundle"
+                              class="font-bold text-blue-600 cursor-help underline decoration-dotted"
+                              :title="tplSalesTitle(row)"
+                              @mouseenter="showTip('detail', row, $event)" @mouseleave="hideTipSoon">
+                          {{ fmtN(refOf(row).tpl.sales) }} <span class="text-[10px]">明細</span>
+                        </span>
+                        <span v-else class="font-semibold text-gray-700 cursor-help" :title="tplSalesTitle(row)">{{ fmtN(refOf(row).tpl.sales) }}</span>
+                        <div v-if="refOf(row).tpl.mode === 'hist'" class="text-[10px] text-sky-600 leading-tight">歷史估算</div>
+                        <div v-else-if="refOf(row).tpl.mode === 'review'" class="text-[10px] text-orange-600 leading-tight">需覆核</div>
+                      </template>
+                    </td>
+                    <td class="px-1.5 py-2 text-center text-xs cursor-help" style="background:rgba(239,246,255,.4);" :title="stockTitle(row, 'tpl')">
+                      <span v-if="refOf(row)" class="text-gray-700">{{ fmtN(refOf(row).tpl.stock.total) }}</span>
+                    </td>
+                    <td class="px-1.5 py-2 text-center text-[11px]" style="background:rgba(239,246,255,.4);">
+                      <template v-if="refOf(row)">
+                        <span v-if="refOf(row).tpl.expiry"
+                              class="text-sky-600 cursor-pointer underline decoration-dotted"
+                              @mouseenter="showTip('lots', row, $event)" @mouseleave="hideTipSoon">{{ fmtDay(refOf(row).tpl.expiry) }}</span>
+                        <span v-else class="text-gray-300">-</span>
+                      </template>
+                    </td>
+                  </template>
+
                   <!-- 3PL -->
                   <td class="px-1.5 py-2 text-center" style="background:rgba(239,246,255,.4);">
                     <div class="flex items-center justify-center gap-0.5">
@@ -1251,12 +1453,30 @@ onActivated(_autoLoadFromQuery)
                     </div>
                   </td>
 
+                  <!-- 分貨參考：3PL 餘缺率 / SD4 需求 / SD4 含待入 -->
+                  <template v-if="refOpen">
+                    <td class="px-1.5 py-2 text-center text-xs" style="background:rgba(239,246,255,.4);"
+                        :class="rateInfo(row, 'tpl').cls" :title="rateInfo(row, 'tpl').title">{{ rateInfo(row, 'tpl').text }}</td>
+                    <td class="px-1.5 py-2 text-center text-xs cursor-help" style="background:rgba(245,243,255,.4);" :title="sd4DemandTitle(row)">
+                      <template v-if="refOf(row)">
+                        <span v-if="refOf(row).sd4.mode === 'none'" class="text-gray-300">-</span>
+                        <span v-else-if="refOf(row).sd4.mode === 'review'" class="text-orange-600 text-[11px] font-semibold">需覆核</span>
+                        <span v-else class="font-semibold text-gray-700">{{ fmtN(refOf(row).sd4.demand) }}</span>
+                      </template>
+                    </td>
+                    <td class="px-1.5 py-2 text-center text-xs cursor-help" style="background:rgba(245,243,255,.4);" :title="stockTitle(row, 'sd4')">
+                      <span v-if="refOf(row)" class="text-gray-700">{{ fmtN(refOf(row).sd4.stock.total) }}</span>
+                    </td>
+                  </template>
+
                   <!-- SD4 (computed) -->
                   <td class="px-1.5 py-2 text-center" style="background:rgba(245,243,255,.4);">
                     <span class="inline-block min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold" :class="sd4Class(calcSD4(row))">
                       {{ calcSD4(row) }}
                     </span>
                   </td>
+                  <td v-if="refOpen" class="px-1.5 py-2 text-center text-xs" style="background:rgba(245,243,255,.4);"
+                      :class="rateInfo(row, 'sd4').cls" :title="rateInfo(row, 'sd4').title">{{ rateInfo(row, 'sd4').text }}</td>
 
                   <!-- 额外列 -->
                   <td v-for="c in activeExtraCols" :key="c.index" class="px-1 py-2 text-center" style="background:rgba(255,251,235,.4);">
@@ -1287,20 +1507,25 @@ onActivated(_autoLoadFromQuery)
                      之后 SKU 列才与主行 SKU 对齐；少一个会整行左移（SKU 落到 Barcode 列） -->
                 <tr v-for="(c, ci) in row.combos" :key="c.sku" class="border-b border-gray-50" style="background:linear-gradient(90deg,#eff6ff,transparent);">
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  <template v-if="!refOpen">
+                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  </template>
                   <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
-                  <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  <template v-if="!refOpen">
+                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                    <td class="px-2.5 py-1.5 text-gray-300">—</td>
+                  </template>
                   <td class="px-2.5 py-1.5">
                     <span class="text-[11px] text-blue-500">↳</span>
                     <span class="font-mono text-[11px] font-bold ml-1" style="color:#2563eb;">{{ c.sku }}</span>
                   </td>
                   <td class="px-2.5 py-1.5 text-[11px] text-gray-500">{{ c.name }} {{ c.label }}</td>
-                  <td class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
+                  <td v-if="!refOpen" class="px-2.5 py-1.5 text-gray-300 text-center">—</td>
                   <!-- WS 位:combo 只走 3PL,WS 恒空 -->
                   <td class="px-1.5 py-1.5 text-gray-300 text-center">—</td>
+                  <template v-if="refOpen"><td></td><td></td><td></td></template>
                   <!-- 3PL 位:combo 的实际录入 -->
                   <td class="px-1.5 py-1.5 text-center" style="background:rgba(239,246,255,.4);">
                     <input
@@ -1313,8 +1538,10 @@ onActivated(_autoLoadFromQuery)
                       style="border-color:#bfdbfe;"
                     />
                   </td>
+                  <template v-if="refOpen"><td></td><td></td><td></td></template>
                   <!-- SD4 位 -->
                   <td class="px-1.5 py-1.5 text-gray-300 text-center">—</td>
+                  <td v-if="refOpen"></td>
                   <td v-for="ec in activeExtraCols" :key="ec.index" class="px-1 py-1.5 text-gray-300 text-center">—</td>
                   <td v-if="canAddCol"></td>
                   <td class="px-2.5 py-1.5 text-center">
@@ -1338,19 +1565,23 @@ onActivated(_autoLoadFromQuery)
             <tfoot class="sticky bottom-0 z-10">
               <tr class="font-semibold text-xs" style="background:#f3f4f6;border-top:2px solid #d1d5db;">
                 <td class="px-2.5 py-2 text-center">{{ footerStats.tQ }}</td>
-                <td class="px-2.5 py-2 text-center" style="background:#f0fdfa;">
+                <td v-if="!refOpen" class="px-2.5 py-2 text-center" style="background:#f0fdfa;">
                   <span class="font-bold" :class="footerStats.tCo === footerStats.tQ ? 'text-gray-800' : 'text-red-600'">{{ footerStats.tCo }}</span>
                 </td>
-                <td></td><td></td><td></td><td></td><!-- 箱入/總箱數/Remarks/板 -->
-                <td></td><!-- Barcode -->
-                <td class="px-2.5 py-2">合計</td><!-- SKU -->
+                <template v-if="!refOpen"><td></td><td></td></template><!-- 箱入/總箱數 -->
+                <td></td><!-- Remarks -->
+                <template v-if="!refOpen"><td></td><td></td></template><!-- 板/Barcode -->
+                <td class="px-2.5 py-2">{{ refOpen ? '本頁合計' : '合計' }}</td><!-- SKU -->
                 <td></td><!-- Name -->
-                <td></td><!-- 有效期 -->
+                <td v-if="!refOpen"></td><!-- 有效期 -->
                 <td class="px-2.5 py-2 text-center" style="color:#065f46;background:#ecfdf5;">{{ footerStats.tW }}</td>
+                <template v-if="refOpen"><td style="background:#eff6ff;"></td><td style="background:#eff6ff;"></td><td style="background:#eff6ff;"></td></template>
                 <td class="px-2.5 py-2 text-center" style="color:#1d4ed8;background:#eff6ff;">{{ footerStats.tT }}</td>
+                <template v-if="refOpen"><td style="background:#eff6ff;"></td><td style="background:#f5f3ff;"></td><td style="background:#f5f3ff;"></td></template>
                 <td class="px-2.5 py-2 text-center" style="background:#f5f3ff;">
                   <span class="inline-block min-w-[2rem] px-2 py-0.5 rounded-full text-xs font-bold" :class="sd4Class(footerStats.tS)">{{ footerStats.tS }}</span>
                 </td>
+                <td v-if="refOpen" style="background:#f5f3ff;"></td>
                 <td v-for="c in activeExtraCols" :key="c.index" class="px-1 py-2 text-center" style="background:#fffbeb;color:#92400e;">{{ footerStats.tE[c.index] }}</td>
                 <td v-if="canAddCol"></td>
                 <td></td>
@@ -1486,6 +1717,64 @@ onActivated(_autoLoadFromQuery)
           </span>
           <span v-if="comboHas(rowIndex(activeRow), opt.sku)" class="text-emerald-600">✓</span>
         </button>
+      </div>
+    </Teleport>
+
+    <!-- 分貨參考浮窗：銷量明細（含 bundle／原箱）／3PL 現有批次 -->
+    <Teleport to="body">
+      <div v-if="tip.kind && tip.row && refOf(tip.row)"
+           class="bg-white border border-gray-200 rounded-lg shadow-xl text-[11px] overflow-hidden"
+           :style="{ position: 'fixed', top: tip.top + 'px', left: tip.left + 'px', width: tip.width + 'px', zIndex: 70 }"
+           @mouseenter="keepTip" @mouseleave="hideTipSoon">
+        <template v-if="tip.kind === 'detail'">
+          <div class="px-3 py-2 font-bold text-gray-600" style="background:#eff6ff;border-bottom:1px solid #dbeafe;">
+            {{ tip.row.sku }} · 3PL 銷售來源（只列目前走 3PL 的銷售SKU；各行按銷售SKU原單位）
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse">
+              <thead>
+                <tr class="text-gray-400" style="background:#f9fafb;">
+                  <th class="px-2 py-1.5 text-left font-semibold">銷售SKU</th>
+                  <th class="px-2 py-1.5 text-center font-semibold">上週</th>
+                  <th v-for="m in refData.periods.months" :key="m.key" class="px-2 py-1.5 text-center font-semibold">{{ m.label }}</th>
+                  <th class="px-2 py-1.5 text-center font-semibold">到期日</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="src in refOf(tip.row).tpl.sources" :key="src.product_id" class="border-t border-gray-100 align-top">
+                  <td class="px-2 py-1.5">
+                    <div class="font-mono font-bold" :class="src.is_base ? 'text-gray-800' : 'text-blue-600'">{{ src.sku }}</div>
+                    <div class="text-gray-400">{{ src.factor === 1 ? '單件' : `×${fmtN(src.factor)} 件` }} · 店 {{ src.stores.join('/') }}</div>
+                    <div v-if="src.mode === 'hist'" class="text-sky-600">採歷史有貨日估算</div>
+                    <div v-else-if="src.mode === 'review'" class="text-orange-600">需覆核</div>
+                  </td>
+                  <td class="px-2 py-1.5 text-center font-semibold">{{ fmtN(src.last_week) }}</td>
+                  <td v-for="m in src.months" :key="m.key" class="px-2 py-1.5 text-center">
+                    <div class="font-semibold">{{ fmtN(m.sales) }}</div>
+                    <div v-if="m.oos" class="text-red-600">缺{{ m.oos }}天</div>
+                  </td>
+                  <td class="px-2 py-1.5 text-center" :class="src.expiry ? 'text-gray-700' : 'text-gray-300'">{{ fmtDay(src.expiry) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="px-3 py-1.5 text-gray-400" style="border-top:1px solid #f3f4f6;">
+            缺貨天數默認為 3PL；本月截至 {{ fmtDay(refData.periods.yesterday) }}；上週 = {{ fmtDay(refData.periods.week_start) }}～{{ fmtDay(refData.periods.cutoff) }}
+          </div>
+        </template>
+        <template v-else-if="tip.kind === 'lots'">
+          <div class="px-3 py-2 font-bold text-gray-600" style="background:#f0f9ff;border-bottom:1px solid #e0f2fe;">
+            {{ tip.row.sku }} · 3PL 現有庫存批次
+          </div>
+          <div v-for="(l, i) in refOf(tip.row).tpl.lots" :key="i" class="px-3 py-1 flex justify-between border-t border-gray-50">
+            <span class="font-mono text-gray-600">{{ l.lot || '（無批次）' }}</span>
+            <span :class="l.expiry ? 'text-gray-800' : 'text-gray-300'">{{ fmtDay(l.expiry) }}</span>
+            <span class="font-semibold">{{ fmtN(l.qty) }} 件</span>
+          </div>
+          <div class="px-3 py-1.5 text-gray-400" style="border-top:1px solid #f3f4f6;">
+            只列已在 3PL 的現有庫存；待入貨不列。含待入 {{ fmtN(refOf(tip.row).tpl.stock.total) }} ＝ 現有可用 {{ fmtN(refOf(tip.row).tpl.stock.avail) }} ＋ 待入 {{ fmtN(refOf(tip.row).tpl.stock.total - refOf(tip.row).tpl.stock.avail) }}
+          </div>
+        </template>
       </div>
     </Teleport>
   </div>

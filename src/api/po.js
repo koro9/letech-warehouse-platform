@@ -85,6 +85,18 @@ export function getAllocation(poName) {
 }
 
 /**
+ * 收貨分配 · 分貨參考（v5）— 按「分貨參考：展開」或勾「剔除無3PL售賣SKU」才調，只讀。
+ *
+ * 後端契約：GET /api/warehouse/po/<po_name>/allocation/reference
+ * @returns 200 { periods, rows: { <product_id>: { has_tpl, has_bundle, tpl: {...}, sd4: {...} } } }
+ *   欄位說明見 le_warehouse/services/alloc_reference.py
+ */
+export function getAllocationReference(poName) {
+  const safe = encodeURIComponent(poName)
+  return http.get(`/warehouse/po/${safe}/allocation/reference`, { timeout: 60000 })
+}
+
+/**
  * 保存分配（增量 + 行级乐观锁）。
  *
  * 后端契约：POST /api/warehouse/po/<po_name>/allocation
