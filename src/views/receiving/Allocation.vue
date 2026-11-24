@@ -236,7 +236,8 @@ const DEFAULT_COL_WIDTHS = {
 }
 // 非固定列（table-fixed 也需要 width，但不强制 resize handle）
 const EXTRA_COL_W = 90    // 动态额外列
-const REF_W = { sales: 78, incl: 70, exp: 84, rate: 72, dem: 70 }   // 分貨參考欄
+// 分貨參考欄（展開時 3PL / SD4 分配欄也用固定寬度，不沿用使用者以前拖過的列寬 —— 業務 11-24 Janet：欄位隔太遠）
+const REF_W = { sales: 78, incl: 70, exp: 84, rate: 72, dem: 70, alloc: 72 }
 const ADDCOL_W = 44       // 加列 + 按钮列
 const ACTION_W = 56       // 操作列
 
@@ -1306,13 +1307,13 @@ onActivated(_autoLoadFromQuery)
                   <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.incl + 'px' }" style="color:#1d4ed8;background:#eff6ff;">3PL<br>含待入</th>
                   <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.exp + 'px' }" style="color:#1d4ed8;background:#eff6ff;" title="3PL 現有庫存最早到期日（不含本批貨／待入貨）">3PL<br>到期日</th>
                 </template>
-                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.tpl + 'px' }" style="color:#1d4ed8;background:#eff6ff;"><template v-if="refOpen">3PL<br>分配</template><template v-else>3PL</template><span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: (refOpen ? REF_W.alloc : colWidths.tpl) + 'px' }" style="color:#1d4ed8;background:#eff6ff;"><template v-if="refOpen">3PL<br>分配</template><template v-else>3PL<span class="col-resize-handle" @mousedown="startColResize('tpl', $event)"></span></template></th>
                 <template v-if="refOpen">
                   <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.rate + 'px' }" style="color:#1d4ed8;background:#eff6ff;" title="（預計庫存 − 校正需求）÷ 校正需求">3PL<br>餘缺率</th>
                   <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.dem + 'px' }" style="color:#5b21b6;background:#f5f3ff;" title="近三個月各月扣缺貨後的最高需求">SD4<br>需求</th>
                   <th class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.incl + 'px' }" style="color:#5b21b6;background:#f5f3ff;">SD4<br>含待入</th>
                 </template>
-                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: colWidths.sd4 + 'px' }" style="color:#5b21b6;background:#f5f3ff;"><template v-if="refOpen">SD4<br>分配</template><template v-else>SD4</template><span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></th>
+                <th class="px-2.5 py-2 text-center text-[11px] relative" :style="{ width: (refOpen ? REF_W.alloc : colWidths.sd4) + 'px' }" style="color:#5b21b6;background:#f5f3ff;"><template v-if="refOpen">SD4<br>分配</template><template v-else>SD4<span class="col-resize-handle" @mousedown="startColResize('sd4', $event)"></span></template></th>
                 <th v-if="refOpen" class="px-1.5 py-2 text-center text-[11px]" :style="{ width: REF_W.rate + 'px' }" style="color:#5b21b6;background:#f5f3ff;" title="（預計庫存 − 需求）÷ 需求">SD4<br>餘缺率</th>
                 <th v-for="c in activeExtraCols" :key="c.index" class="px-1.5 py-2 text-center relative" :style="{ width: EXTRA_COL_W + 'px' }" style="background:#fffbeb;">
                   <input
