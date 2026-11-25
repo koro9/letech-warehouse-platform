@@ -1880,7 +1880,10 @@ onActivated(_autoLoadFromQuery)
             <span class="font-semibold">{{ fmtN(l.qty) }} 件</span>
           </div>
           <div class="px-3 py-1.5 text-gray-400" style="border-top:1px solid #f3f4f6;">
-            只列已在 3PL 的現有庫存；待入貨不列。含待入 {{ fmtN(refOf(tip.row).tpl.stock.total) }} ＝ 現有可用 {{ fmtN(refOf(tip.row).tpl.stock.avail) }} ＋ 待入 {{ fmtN(refOf(tip.row).tpl.stock.total - refOf(tip.row).tpl.stock.avail) }}
+            <template v-if="refOf(tip.row).tpl.stock_folded">
+              只列已在 3PL 的現有庫存；待入貨不列。含待入（折單件）{{ fmtN(refOf(tip.row).tpl.stock_folded.total) }} ＝ 現有可用 {{ fmtN(refOf(tip.row).tpl.stock_folded.avail) }} ＋ 待入 {{ fmtN((refOf(tip.row).tpl.stock_folded.total || 0) - (refOf(tip.row).tpl.stock_folded.avail || 0)) }}
+            </template>
+            <template v-else>只列已在 3PL 的現有庫存；待入貨不列。</template>
           </div>
         </template>
       </div>
