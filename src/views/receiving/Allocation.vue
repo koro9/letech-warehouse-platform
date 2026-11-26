@@ -282,10 +282,12 @@ const DEFAULT_COL_WIDTHS = {
 const EXTRA_COL_W = 90    // 动态额外列
 // 分貨參考欄（展開時 3PL / SD4 分配欄也用固定寬度，不沿用使用者以前拖過的列寬 —— 業務 11-24 Janet：欄位隔太遠）
 const REF_W = { sales: 62, incl: 58, exp: 74, gap3: 100, dem: 58, alloc: 64, gap4: 84 }
-// 展開時文字欄收窄，讓原有欄位 + 參考欄在 1920 寬螢幕一屏放得下（收起時照用使用者自己的列寬）
+// 展開時文字欄默認收窄，讓原有欄位 + 參考欄在 1920 寬螢幕一屏放得下（收起時照用使用者自己的列寬）
+//   展開時這幾欄也可拖寬（業務 11-26 Ice：Name 拉不開看不到名字），寬度另存一份，不影響收起時的列寬
 const REF_CAP = { remarks: 100, board: 60, barcode: 100, name: 170, dates: 84 }
+const REF_COL_WIDTHS_KEY = 'alloc_col_widths_ref'
 function cw(key) {
-  return refOpen.value ? Math.min(colWidths[key], REF_CAP[key] || 9999) : colWidths[key]
+  return refOpen.value && key in REF_CAP ? refColWidths[key] : colWidths[key]
 }
 const ADDCOL_W = 44       // 加列 + 按钮列
 const ACTION_W = 56       // 操作列
@@ -306,9 +308,21 @@ function _loadColWidths() {
 
 const colWidths = reactive(_loadColWidths())
 
+function _loadRefColWidths() {
+  const merged = {}
+  for (const k in REF_CAP) merged[k] = Math.min(colWidths[k], REF_CAP[k])
+  try {
+    const saved = JSON.parse(localStorage.getItem(REF_COL_WIDTHS_KEY) || '{}')
+    for (const k in merged) if (typeof saved[k] === 'number' && saved[k] >= COL_MIN_W) merged[k] = saved[k]
+  } catch (e) { /* 用默認 */ }
+  return merged
+}
+const refColWidths = reactive(_loadRefColWidths())
+
 function _saveColWidths() {
   try {
     localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths))
+    localStorage.setItem(REF_COL_WIDTHS_KEY, JSON.stringify(refColWidths))
   } catch (e) { /* 忽略写入失败 */ }
 }
 
@@ -316,11 +330,12 @@ function _saveColWidths() {
 let _resizeKey = null
 let _resizeStartX = 0
 let _resizeStartW = 0
+let _resizeStore = null
 
 function _onColResizeMove(e) {
   if (!_resizeKey) return
   const delta = e.clientX - _resizeStartX
-  colWidths[_resizeKey] = Math.min(Math.max(COL_MIN_W, _resizeStartW + delta), COL_MAX_W[_resizeKey] || 9999)
+  _resizeStore[_resizeKey] = Math.min(Math.max(COL_MIN_W, _resizeStartW + delta), COL_MAX_W[_resizeKey] || 9999)
 }
 
 function _onColResizeUp() {
@@ -337,8 +352,9 @@ function startColResize(key, e) {
   e.preventDefault()
   e.stopPropagation()
   _resizeKey = key
+  _resizeStore = refOpen.value && key in REF_CAP ? refColWidths : colWidths
   _resizeStartX = e.clientX
-  _resizeStartW = colWidths[key] || DEFAULT_COL_WIDTHS[key] || 80
+  _resizeStartW = _resizeStore[key] || DEFAULT_COL_WIDTHS[key] || 80
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'col-resize'
   window.addEventListener('mousemove', _onColResizeMove)
